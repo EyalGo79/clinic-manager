@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>קליניקה — החיוב שלי</title>
+  <link rel="stylesheet" href="/style.css">
+  <style>
+    .month-nav { display:flex; align-items:center; gap:16px; }
+    .month-nav button { background:#edf2f7; border:none; border-radius:6px; padding:6px 12px; cursor:pointer; font-size:18px; }
+    .month-nav span { font-size:16px; font-weight:700; min-width:120px; text-align:center; }
+    .summary-box {
+      background: linear-gradient(135deg,#ebf8ff,#bee3f8);
+      border-radius:10px;
+      padding:24px 28px;
+      margin-bottom:20px;
+      display:flex;
+      gap:40px;
+      flex-wrap:wrap;
+    }
+    .summary-box .item .label { font-size:13px; color:#2a69ac; margin-bottom:4px; }
+    .summary-box .item .val { font-size:26px; font-weight:700; color:#1a365d; }
+    tfoot td { font-weight:700; background:#f7fafc; }
+  </style>
+</head>
+<body>
+<div class="layout">
+
+  <aside class="sidebar">
+    <div class="sidebar-logo"><span>🏥</span>קליניקה</div>
+    <nav>
+      <a href="/therapist/index.html"><span class="icon">📅</span>הפגישות שלי</a>
+      <a href="/therapist/billing.html" class="active"><span class="icon">💰</span>החיוב שלי</a>
+    </nav>
+    <div class="sidebar-user">
+      <div class="name" id="userName">...</div>
+      <div class="role">מטפל</div>
+      <form action="/auth/logout" method="post">
+        <button class="btn-logout" type="submit">יציאה</button>
+      </form>
+    </div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <h2>החיוב שלי</h2>
+      <div class="month-nav">
+        <button onclick="changeMonth(-1)">‹</button>
+        <span id="monthLabel"></span>
+        <button onclick="changeMonth(1)">›</button>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="summary-box" id="summaryBox">
+        <div class="item"><div class="label">סה"כ שעות</div><div class="val" id="sumHours">—</div></div>
+        <div class="item"><div class="label">מחיר לשעה</div><div class="val" id="sumRate">—</div></div>
+        <div class="item"><div class="label">לתשלום</div><div class="val" id="sumTotal">—</div></div>
+      </div>
+
+      <div class="card">
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>תאריך ושעה</th>
+              <th>משך</th>
+              <th>סטטוס</th>
+            </tr></thead>
+            <tbody id="sessionsTable">
+              <tr><td colspan="3" class="loading">טוען...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const MONTHS_HE = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+  let myId = null;
+  let currentYear, currentMonth;
+
+  fetch('/auth/me').then(r => r.json()).then(u => {
+    document.getElementById('userName').textContent = u.name || u.email;
+    myId = u.id;
+    const now = new Date();
+    currentYear = now.getFullYear();
+    currentMonth = now.getMonth() + 1;
+    updateLabel();
+    loadBilling();
+  });
+
+  function updateLabel() {
+    document.getElementById('monthLabel').textContent =
+      MONTHS_HE[currentMonth - 1] + ' ' + currentYear;
+  }
+
+  function changeMonth(delta) {
+    currentMonth += delta;
+    if (currentMonth > 12) { currentMonth = 1; currentYear++; }
+    if (currentMonth < 1)  { currentMonth = 12; currentYear--; }
+    updateLabel();
+    loadBilling();
+  }
+
+  async function loadBilling() {
+    const tbody = document.getElementById('sessionsTable');
+    tbody.innerHTML = '<tr><td colspan="3" class="loading">טוען...</td></tr>';
+    document.getElementById('sumHours').textContent = '—';
+    document.getElementById('sumRate').textContent = '—';
+    document.getElementById('sumTotal').textContent = '—';
+
+    try {
+      const res = await fetch(`/api/billing/${myId}/${currentYear}/${currentMonth}`);
+      if (!res.ok) { throw new Error(); }
+      const data = await res.json();
+
+      document.getElementById('sumHours').textContent = data.totalHours.toFixed(1) + ' ש\'';
+      document.getElementById('sumRate').textContent = data.ratePerHour + ' ₪';
+      document.getElementById('sumTotal').textContent =
+        '₪' + data.totalAmount.toLocaleString('he-IL', {maximumFractionDigits:0});
+
+      if (!data.sessions.length) {
+        tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:#718096;padding:24px;">אין פגישות מחויבות בחודש זה</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = data.sessions.map(s => {
+        const start = new Date(s.start_time);
+        const hours = parseFloat(s.hours).toFixed(1);
+        const dateStr = start.toLocaleDateString('he-IL', {weekday:'short',day:'numeric',month:'short'});
+        const timeStr = start.toLocaleTimeString('he-IL', {hour:'2-digit',minute:'2-digit'});
+        const badge = s.status === 'cancelled_charged'
+          ? '<span class="badge badge-yellow">בוטל (מחויב)</span>'
+          : '<span class="badge badge-green">מאושר</span>';
+        return `<tr>
+          <td>${dateStr} ${timeStr}</td>
+          <td>${hours} ש'</td>
+          <td>${badge}</td>
+        </tr>`;
+      }).join('');
+    } catch (e) {
+      tbody.innerHTML = '<tr><td colspan="3" style="color:#e53e3e;text-align:center;">שגיאה בטעינה</td></tr>';
+    }
+  }
+</script>
+</body>
+</html>

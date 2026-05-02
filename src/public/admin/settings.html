@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>קליניקה — הגדרות</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="layout">
+
+  <aside class="sidebar">
+    <div class="sidebar-logo"><span>🏥</span>קליניקה</div>
+    <nav>
+      <a href="/admin/index.html"><span class="icon">📊</span>לוח מחוונים</a>
+      <a href="/admin/schedule.html"><span class="icon">📅</span>לוח זמנים</a>
+      <a href="/admin/therapists.html"><span class="icon">👥</span>מטפלים</a>
+      <a href="/admin/billing.html"><span class="icon">💰</span>חיובים</a>
+      <a href="/admin/settings.html" class="active"><span class="icon">⚙️</span>הגדרות</a>
+    </nav>
+    <div class="sidebar-user">
+      <div class="name" id="userName">...</div>
+      <div class="role">מנהל</div>
+      <form action="/auth/logout" method="post">
+        <button class="btn-logout" type="submit">יציאה</button>
+      </form>
+    </div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <h2>הגדרות</h2>
+    </div>
+
+    <div class="content">
+      <div id="alertBox" class="alert"></div>
+
+      <div class="card" style="max-width:480px;">
+        <h3 style="font-size:15px;margin-bottom:16px;">מדרגות חיוב (₪/שעה)</h3>
+        <div id="tiersContainer">
+          <div style="color:#718096;text-align:center;padding:16px;">טוען...</div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;margin-top:16px;">
+          <button class="btn btn-primary" onclick="saveTiers()">שמור שינויים</button>
+        </div>
+      </div>
+      <div class="card" style="max-width:480px;margin-top:20px;">
+        <h3 style="font-size:15px;margin-bottom:16px;">מנהלי מערכת</h3>
+        <div id="adminsContainer">
+          <div style="color:#718096;text-align:center;padding:16px;">טוען...</div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:16px;">
+          <input type="email" class="form-control" id="newAdminEmail" placeholder="אימייל מנהל חדש" style="flex:1;">
+          <button class="btn btn-primary" onclick="addAdmin()">הוסף</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  let currentUserId = null;
+  fetch('/auth/me').then(r => r.json()).then(u => {
+    document.getElementById('userName').textContent = u.name || u.email;
+    currentUserId = u.id;
+  });
+
+  let tiersData = [];
+
+  async function loadTiers() {
+    try {
+      const res = await fetch('/api/settings/rate-tiers');
+      tiersData = await res.json();
+      renderTiers();
+    } catch (e) {
+      document.getElementById('tiersContainer').innerHTML =
+        '<div style="color:#e53e3e;">שגיאה בטעינה</div>';
+    }
+  }
+
+  function renderTiers() {
+    const container = document.getElementById('tiersContainer');
+    container.innerHTML = tiersData.map((t, i) => {
+      const label = t.max_hours === null
+        ? `מעל ${tiersData[i - 1]?.max_hours || 0} ש'`
+        : i === 0
+          ? `עד ${t.max_hours} ש'`
+          : `${tiersData[i - 1].max_hours}–${t.max_hours} ש'`;
+      return `
+        <div style="display:flex;align-items:center;gap:16px;padding:8px 0;border-bottom:1px solid #e2e8f0;">
+          <span style="min-width:140px;font-size:13px;color:#4a5568;">${label}</span>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span style="font-size:13px;">₪</span>
+            <input type="number" class="form-control" id="rate_${t.id}"
+              value="${parseFloat(t.rate)}" min="0" step="0.5"
+              style="width:90px;text-align:left;">
+            <span style="font-size:13px;color:#718096;">/שעה</span>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  async function saveTiers() {
+    const tiers = tiersData.map(t => ({
+      id: t.id,
+      rate: parseFloat(document.getElementById('rate_' + t.id).value),
+    }));
+    if (tiers.some(t => isNaN(t.rate) || t.rate < 0)) {
+      showAlert('alertBox', 'כל המחירים חייבים להיות מספרים חיוביים', 'error');
+      return;
+    }
+    try {
+      const res = await fetch('/api/settings/rate-tiers', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tiers }),
+      });
+      if (!res.ok) {
+        const d = await res.json();
+        showAlert('alertBox', d.error || 'שגיאה', 'error');
+        return;
+      }
+      tiersData = await res.json();
+      renderTiers();
+      showAlert('alertBox', 'המדרגות עודכנו בהצלחה', 'success');
+    } catch (e) {
+      showAlert('alertBox', 'שגיאת רשת', 'error');
+    }
+  }
+
+  function showAlert(id, msg, type) {
+    const el = document.getElementById(id);
+    el.textContent = msg;
+    el.className = `alert alert-${type} show`;
+    setTimeout(() => el.classList.remove('show'), 4000);
+  }
+
+  loadTiers();
+
+  async function loadAdmins() {
+    try {
+      const res = await fetch('/api/settings/admins');
+      const admins = await res.json();
+      renderAdmins(admins);
+    } catch (e) {
+      document.getElementById('adminsContainer').innerHTML =
+        '<div style="color:#e53e3e;">שגיאה בטעינה</div>';
+    }
+  }
+
+  function renderAdmins(admins) {
+    const container = document.getElementById('adminsContainer');
+    if (!admins.length) {
+      container.innerHTML = '<div style="color:#718096;font-style:italic;font-size:13px;">אין מנהלים</div>';
+      return;
+    }
+    container.innerHTML = admins.map(a => `
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #e2e8f0;font-size:13px;">
+        <span style="flex:1;">${a.email}</span>
+        <button class="btn btn-danger btn-sm" style="padding:2px 8px;"
+          onclick="deleteAdmin(${a.id})" ${a.id === currentUserId ? 'disabled title="לא ניתן למחוק את עצמך"' : ''}>✕</button>
+      </div>
+    `).join('');
+  }
+
+  async function addAdmin() {
+    const email = document.getElementById('newAdminEmail').value.trim();
+    if (!email) return;
+    try {
+      const res = await fetch('/api/settings/admins', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      const data = await res.json();
+      if (!res.ok) { showAlert('alertBox', data.error || 'שגיאה', 'error'); return; }
+      document.getElementById('newAdminEmail').value = '';
+      showAlert('alertBox', 'המנהל נוסף בהצלחה', 'success');
+      loadAdmins();
+    } catch (e) {
+      showAlert('alertBox', 'שגיאת רשת', 'error');
+    }
+  }
+
+  async function deleteAdmin(id) {
+    if (!confirm('האם למחוק מנהל זה?')) return;
+    try {
+      const res = await fetch(`/api/settings/admins/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) { showAlert('alertBox', data.error || 'שגיאה', 'error'); return; }
+      loadAdmins();
+    } catch (e) {
+      showAlert('alertBox', 'שגיאת רשת', 'error');
+    }
+  }
+
+  loadAdmins();
+</script>
+</body>
+</html>

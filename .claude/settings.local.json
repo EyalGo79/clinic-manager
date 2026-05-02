@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "WebFetch(domain:developers.google.com)",
+      "Bash(node -e \"require\\('dotenv'\\).config\\(\\); console.log\\('CLIENT_ID:', process.env.GOOGLE_CLIENT_ID?.slice\\(-20\\)\\); console.log\\('SECRET starts with:', process.env.GOOGLE_CLIENT_SECRET?.slice\\(0,10\\)\\)\")",
+      "Bash(node -e ' *)",
+      "Bash(taskkill //F //IM node.exe)",
+      "Bash(node index.js)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(curl *)",
+      "Bash(node --check src/routes/calendar.js)",
+      "Bash(node --check index.js)",
+      "Bash(node --check src/routes/billing.js)",
+      "Bash(node --check src/routes/sessions.js)"
+    ]
+  }
+}

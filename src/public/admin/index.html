@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>קליניקה — לוח מחוונים</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="layout">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-logo"><span>🏥</span>קליניקה</div>
+    <nav>
+      <a href="/admin/index.html" class="active"><span class="icon">📊</span>לוח מחוונים</a>
+      <a href="/admin/schedule.html"><span class="icon">📅</span>לוח זמנים</a>
+      <a href="/admin/therapists.html"><span class="icon">👥</span>מטפלים</a>
+      <a href="/admin/billing.html"><span class="icon">💰</span>חיובים</a>
+      <a href="/admin/settings.html"><span class="icon">⚙️</span>הגדרות</a>
+    </nav>
+    <div class="sidebar-user">
+      <div class="name" id="userName">...</div>
+      <div class="role">מנהל</div>
+      <form action="/auth/logout" method="post">
+        <button class="btn-logout" type="submit">יציאה</button>
+      </form>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="main">
+    <div class="topbar">
+      <h2>לוח מחוונים</h2>
+      <div id="todayDate" style="color:#718096;font-size:14px;"></div>
+    </div>
+
+    <div class="content">
+
+      <!-- Stats -->
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="label">מטפלים פעילים</div>
+          <div class="value" id="statTherapists">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">פגישות החודש</div>
+          <div class="value" id="statSessions">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">שעות החודש</div>
+          <div class="value" id="statHours">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">הכנסות החודש</div>
+          <div class="value" id="statRevenue">—</div>
+          <div class="sub">מוערך</div>
+        </div>
+      </div>
+
+      <!-- פגישות היום -->
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <h3 style="font-size:16px;">פגישות היום</h3>
+          <a href="/admin/schedule.html" class="btn btn-ghost btn-sm">לוח זמנים מלא</a>
+        </div>
+        <div id="todaySessions"><div class="loading">טוען...</div></div>
+      </div>
+
+      <!-- סינק גוגל קאלנדר -->
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <h3 style="font-size:16px;">גוגל קאלנדר</h3>
+          <button class="btn btn-primary btn-sm" onclick="syncCalendar()" id="syncBtn">
+            🔄 סנכרן עכשיו
+          </button>
+        </div>
+        <div id="syncStatus" style="font-size:13px;color:#718096;">לא בוצע סינק עדיין</div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+  // תאריך היום
+  const now = new Date();
+  document.getElementById('todayDate').textContent = now.toLocaleDateString('he-IL', {
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+  });
+
+  // שם משתמש — טען הכל רק אחרי שה-auth מאושר
+  fetch('/auth/me').then(r => {
+    if (!r.ok) { window.location.href = '/login'; return null; }
+    return r.json();
+  }).then(u => {
+    if (!u) return;
+    document.getElementById('userName').textContent = u.name || u.email;
+    loadStats();
+    loadTodaySessions();
+  });
+
+  // טעינת stats
+  async function loadStats() {
+    const year = now.getFullYear();
+    const month = now.getMonth() + 1;
+
+    try {
+      const [therapistsRes, summaryRes] = await Promise.all([
+        fetch('/api/therapists'),
+        fetch(`/api/billing/summary/${year}/${month}`),
+      ]);
+      const therapists = await therapistsRes.json();
+      const summary = await summaryRes.json();
+
+      document.getElementById('statTherapists').textContent = therapists.length;
+
+      const totalHours = summary.therapists.reduce((s, t) => s + t.totalHours, 0);
+      const totalRevenue = summary.therapists.reduce((s, t) => s + t.totalAmount, 0);
+      document.getElementById('statHours').textContent = totalHours.toFixed(1);
+      document.getElementById('statRevenue').textContent =
+        '₪' + totalRevenue.toLocaleString('he-IL', { maximumFractionDigits: 0 });
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  // פגישות היום
+  async function loadTodaySessions() {
+    const from = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+    const to = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59).toISOString();
+
+    try {
+      const res = await fetch(`/api/sessions?from=${from}&to=${to}`);
+      const sessions = await res.json();
+      const el = document.getElementById('todaySessions');
+
+      document.getElementById('statSessions').textContent = sessions.length;
+
+      if (!sessions.length) {
+        el.innerHTML = '<div style="color:#718096;font-size:14px;padding:8px 0;">אין פגישות היום</div>';
+        return;
+      }
+
+      el.innerHTML = `
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>שעה</th><th>מטפל</th><th>משך</th><th>סטטוס</th>
+            </tr></thead>
+            <tbody>
+              ${sessions.map(s => {
+                const start = new Date(s.start_time);
+                const end = new Date(s.end_time);
+                const hours = ((end - start) / 3600000).toFixed(1);
+                const timeStr = start.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }) +
+                  ' – ' + end.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
+                const badge = s.status === 'confirmed'
+                  ? '<span class="badge badge-green">מאושר</span>'
+                  : s.status === 'cancelled_charged'
+                  ? '<span class="badge badge-yellow">בוטל (מחויב)</span>'
+                  : '<span class="badge badge-gray">בוטל</span>';
+                return `<tr>
+                  <td>${timeStr}</td>
+                  <td>${s.therapist_name || '—'}</td>
+                  <td>${hours} ש'</td>
+                  <td>${badge}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>`;
+    } catch (e) {
+      document.getElementById('todaySessions').innerHTML =
+        '<div style="color:#e53e3e;font-size:14px;">שגיאה בטעינה</div>';
+    }
+  }
+
+  async function syncCalendar() {
+    const btn = document.getElementById('syncBtn');
+    const status = document.getElementById('syncStatus');
+    btn.disabled = true;
+    btn.textContent = '⏳ מסנכרן...';
+    try {
+      const res = await fetch('/api/calendar/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const data = await res.json();
+      if (data.success) {
+        status.textContent = `סונכרן בהצלחה — יובאו ${data.imported}, עודכנו ${data.updated}, דולגו ${data.skipped}`;
+        status.style.color = '#276749';
+        loadTodaySessions();
+      } else {
+        status.textContent = 'שגיאה בסינק: ' + (data.error || 'לא ידוע');
+        status.style.color = '#e53e3e';
+      }
+    } catch (e) {
+      status.textContent = 'שגיאת רשת';
+      status.style.color = '#e53e3e';
+    }
+    btn.disabled = false;
+    btn.textContent = '🔄 סנכרן עכשיו';
+  }
+</script>
+</body>
+</html>

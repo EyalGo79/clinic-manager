@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>קליניקה — הפגישות שלי</title>
+  <link rel="stylesheet" href="/style.css">
+  <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@fullcalendar/core@6.1.11/locales/he.global.min.js"></script>
+  <style>
+    #calendarWrap { background:#fff; border-radius:10px; padding:20px; box-shadow:0 1px 4px rgba(0,0,0,.08); }
+  </style>
+</head>
+<body>
+<div class="layout">
+
+  <aside class="sidebar">
+    <div class="sidebar-logo"><span>🏥</span>קליניקה</div>
+    <nav>
+      <a href="/therapist/index.html" class="active"><span class="icon">📅</span>הפגישות שלי</a>
+      <a href="/therapist/billing.html"><span class="icon">💰</span>החיוב שלי</a>
+    </nav>
+    <div class="sidebar-user">
+      <div class="name" id="userName">...</div>
+      <div class="role">מטפל</div>
+      <form action="/auth/logout" method="post">
+        <button class="btn-logout" type="submit">יציאה</button>
+      </form>
+    </div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <h2>הפגישות שלי</h2>
+      <button class="btn btn-primary" onclick="openNewSession()">+ פגישה חדשה</button>
+    </div>
+
+    <div class="content">
+      <!-- Stats חודש נוכחי -->
+      <div class="stats-grid" style="margin-bottom:24px;">
+        <div class="stat-card">
+          <div class="label">פגישות החודש</div>
+          <div class="value" id="statCount">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">שעות החודש</div>
+          <div class="value" id="statHours">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">חיוב משוער</div>
+          <div class="value" id="statAmount">—</div>
+          <div class="sub" id="statRate"></div>
+        </div>
+      </div>
+
+      <div id="calendarWrap">
+        <div id="calendar"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- פרטי פגישה -->
+<div class="modal-overlay" id="detailModal">
+  <div class="modal" style="width:360px;">
+    <button class="modal-close" onclick="document.getElementById('detailModal').classList.remove('open')">✕</button>
+    <h3>פרטי פגישה</h3>
+    <div id="detailContent" style="font-size:14px;line-height:2;"></div>
+  </div>
+</div>
+
+<!-- מודל פגישה חדשה / עריכה -->
+<div class="modal-overlay" id="sessionModal">
+  <div class="modal" style="width:360px;">
+    <button class="modal-close" onclick="closeSessionModal()">✕</button>
+    <h3 id="sessionModalTitle">פגישה חדשה</h3>
+    <input type="hidden" id="editSessionId">
+    <div class="form-group">
+      <label>תאריך</label>
+      <input type="date" class="form-control" id="sDate">
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div class="form-group">
+        <label>שעת התחלה</label>
+        <input type="time" class="form-control" id="sStart">
+      </div>
+      <div class="form-group">
+        <label>שעת סיום</label>
+        <input type="time" class="form-control" id="sEnd">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>הערות (אופציונלי)</label>
+      <input type="text" class="form-control" id="sNotes" placeholder="הערה חופשית">
+    </div>
+    <div id="sessionModalAlert" class="alert"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:12px;">
+      <button class="btn btn-ghost" onclick="closeSessionModal()">ביטול</button>
+      <button class="btn btn-primary" onclick="saveSession()">שמור</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  let myId = null;
+  let calendar = null;
+
+  fetch('/auth/me').then(r => r.json()).then(u => {
+    document.getElementById('userName').textContent = u.name || u.email;
+    myId = u.id;
+    loadStats();
+    loadCalendar();
+  });
+
+  function openNewSession() {
+    document.getElementById('sessionModalTitle').textContent = 'פגישה חדשה';
+    document.getElementById('editSessionId').value = '';
+    document.getElementById('sDate').value = new Date().toISOString().slice(0, 10);
+    document.getElementById('sStart').value = '';
+    document.getElementById('sEnd').value = '';
+    document.getElementById('sNotes').value = '';
+    document.getElementById('sessionModalAlert').className = 'alert';
+    document.getElementById('sessionModal').classList.add('open');
+  }
+
+  function openEditSession(s) {
+    document.getElementById('sessionModalTitle').textContent = 'עריכת פגישה';
+    document.getElementById('editSessionId').value = s.id;
+    const start = new Date(s.start_time);
+    const end = new Date(s.end_time);
+    document.getElementById('sDate').value = start.toISOString().slice(0, 10);
+    document.getElementById('sStart').value = start.toTimeString().slice(0, 5);
+    document.getElementById('sEnd').value = end.toTimeString().slice(0, 5);
+    document.getElementById('sNotes').value = s.notes || '';
+    document.getElementById('sessionModalAlert').className = 'alert';
+    document.getElementById('sessionModal').classList.add('open');
+  }
+
+  function closeSessionModal() {
+    document.getElementById('sessionModal').classList.remove('open');
+  }
+
+  // המרת datetime-local string ל-ISO עם offset מקומי
+  function localToISO(localStr) {
+    const d = new Date(localStr);
+    const off = -d.getTimezoneOffset();
+    const sign = off >= 0 ? '+' : '-';
+    const hh = String(Math.floor(Math.abs(off) / 60)).padStart(2, '0');
+    const mm = String(Math.abs(off) % 60).padStart(2, '0');
+    return localStr + sign + hh + ':' + mm;
+  }
+
+  async function saveSession() {
+    const date = document.getElementById('sDate').value;
+    const start = document.getElementById('sStart').value;
+    const end = document.getElementById('sEnd').value;
+    const notes = document.getElementById('sNotes').value.trim() || null;
+    const editId = document.getElementById('editSessionId').value;
+
+    if (!date || !start || !end) {
+      showSessionAlert('יש למלא תאריך, שעת התחלה ושעת סיום', 'error');
+      return;
+    }
+
+    const start_time = localToISO(`${date}T${start}:00`);
+    const end_time   = localToISO(`${date}T${end}:00`);
+
+    if (new Date(start_time) >= new Date(end_time)) {
+      showSessionAlert('שעת הסיום חייבת להיות אחרי שעת ההתחלה', 'error');
+      return;
+    }
+
+    try {
+      const url = editId ? `/api/sessions/${editId}` : '/api/sessions';
+      const method = editId ? 'PUT' : 'POST';
+      const body = editId
+        ? { start_time, end_time, notes }
+        : { therapist_id: myId, start_time, end_time, notes };
+
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showSessionAlert(data.error || 'שגיאה', 'error');
+        return;
+      }
+      closeSessionModal();
+      calendar.refetchEvents();
+      loadStats();
+    } catch (e) {
+      showSessionAlert('שגיאת רשת', 'error');
+    }
+  }
+
+  function showSessionAlert(msg, type) {
+    const el = document.getElementById('sessionModalAlert');
+    el.textContent = msg;
+    el.className = `alert alert-${type} show`;
+  }
+
+  function RATES(h) {
+    if (h <= 4)  return 50;
+    if (h <= 16) return 47;
+    if (h <= 24) return 37;
+    if (h <= 32) return 32;
+    return 27;
+  }
+
+  async function loadStats() {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth() + 1;
+    try {
+      const res = await fetch(`/api/billing/${myId}/${year}/${month}`);
+      const data = await res.json();
+      document.getElementById('statCount').textContent = data.sessions.length;
+      document.getElementById('statHours').textContent = data.totalHours.toFixed(1);
+      document.getElementById('statAmount').textContent =
+        '₪' + data.totalAmount.toLocaleString('he-IL', {maximumFractionDigits:0});
+      document.getElementById('statRate').textContent = `${data.ratePerHour} ₪ לשעה`;
+    } catch (e) { /* טרם יש נתונים */ }
+  }
+
+  function loadCalendar() {
+    calendar = new FullCalendar.Calendar(document.getElementById('calendar'), {
+      locale: 'he',
+      direction: 'rtl',
+      initialView: 'timeGridWeek',
+      headerToolbar: {
+        start: 'today prev,next',
+        center: 'title',
+        end: 'dayGridMonth,timeGridWeek,timeGridDay',
+      },
+      slotMinTime: '07:00:00',
+      slotMaxTime: '22:00:00',
+      height: 650,
+      allDaySlot: false,
+      events: async (info, success) => {
+        const res = await fetch(
+          `/api/sessions?from=${info.startStr}&to=${info.endStr}`
+        );
+        const sessions = await res.json();
+        success(sessions.map(s => ({
+          id: s.id,
+          title: s.status === 'cancelled_charged' ? '⚠️ בוטל (מחויב)' :
+                 s.status === 'cancelled' ? '✕ בוטל' : 'פגישה',
+          start: s.start_time,
+          end: s.end_time,
+          backgroundColor: s.status === 'confirmed' ? '#4299e1' : '#a0aec0',
+          extendedProps: s,
+        })));
+      },
+      eventClick: (info) => {
+        const s = info.event.extendedProps;
+        if (s.status === 'confirmed') {
+          openEditSession(s);
+        } else {
+          // פגישות מבוטלות — הצג פרטים בלבד
+          const start = new Date(s.start_time);
+          const end = new Date(s.end_time);
+          const hours = ((end - start) / 3600000).toFixed(1);
+          const statusMap = { confirmed: '✅ מאושר', cancelled: '❌ בוטל', cancelled_charged: '⚠️ בוטל (מחויב)' };
+          document.getElementById('detailContent').innerHTML = `
+            <div><strong>תאריך:</strong> ${start.toLocaleDateString('he-IL',{weekday:'long',day:'numeric',month:'long'})}</div>
+            <div><strong>שעות:</strong> ${start.toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'})} – ${end.toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'})}</div>
+            <div><strong>משך:</strong> ${hours} שעות</div>
+            <div><strong>סטטוס:</strong> ${statusMap[s.status] || s.status}</div>
+            ${s.notes ? `<div><strong>הערות:</strong> ${s.notes}</div>` : ''}
+          `;
+          document.getElementById('detailModal').classList.add('open');
+        }
+      },
+    });
+    calendar.render();
+  }
+</script>
+</body>
+</html>

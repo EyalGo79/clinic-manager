@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>קליניקה — מטפלים</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="layout">
+
+  <aside class="sidebar">
+    <div class="sidebar-logo"><span>🏥</span>קליניקה</div>
+    <nav>
+      <a href="/admin/index.html"><span class="icon">📊</span>לוח מחוונים</a>
+      <a href="/admin/schedule.html"><span class="icon">📅</span>לוח זמנים</a>
+      <a href="/admin/therapists.html" class="active"><span class="icon">👥</span>מטפלים</a>
+      <a href="/admin/billing.html"><span class="icon">💰</span>חיובים</a>
+      <a href="/admin/settings.html"><span class="icon">⚙️</span>הגדרות</a>
+    </nav>
+    <div class="sidebar-user">
+      <div class="name" id="userName">...</div>
+      <div class="role">מנהל</div>
+      <form action="/auth/logout" method="post">
+        <button class="btn-logout" type="submit">יציאה</button>
+      </form>
+    </div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <h2>ניהול מטפלים</h2>
+      <button class="btn btn-primary" onclick="openModal()">+ הוסף מטפל</button>
+    </div>
+
+    <div class="content">
+      <div id="alertBox" class="alert"></div>
+
+      <div class="card">
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>שם</th><th>אימייל</th><th>טלפון</th><th>סוג</th><th>מחיר ססיה</th><th>סטטוס</th><th>פעולות</th>
+            </tr></thead>
+            <tbody id="therapistsTable">
+              <tr><td colspan="7" class="loading">טוען...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal הוספה/עריכה מטפל -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal" style="max-width:560px;width:100%;">
+    <button class="modal-close" onclick="closeModal()">✕</button>
+    <h3 id="modalTitle">הוספת מטפל</h3>
+    <input type="hidden" id="editId">
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 16px;">
+      <div class="form-group">
+        <label>שם מלא *</label>
+        <input type="text" class="form-control" id="fName" placeholder="ישראל ישראלי">
+      </div>
+      <div class="form-group">
+        <label>אימייל *</label>
+        <input type="email" class="form-control" id="fEmail" placeholder="israel@example.com">
+      </div>
+      <div class="form-group">
+        <label>טלפון</label>
+        <input type="tel" class="form-control" id="fPhone" placeholder="050-0000000">
+      </div>
+      <div class="form-group">
+        <label>סוג *</label>
+        <select class="form-control" id="fType">
+          <option value="fixed">קבוע (ססיות קבועות)</option>
+          <option value="flexible">גמיש (מקום פנוי)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>שם בגוגל קאלנדר</label>
+        <input type="text" class="form-control" id="fCalendarName" dir="auto" placeholder="שם בנושא האירוע (ריק = שם פרטי)">
+      </div>
+      <div class="form-group">
+        <label>מחיר ססיה קבועה (₪/חודש)</label>
+        <input type="number" class="form-control" id="fSlotRate" placeholder="ריק = לפי מדרגות" min="0" step="0.01">
+      </div>
+      <div class="form-group">
+        <label>הנחה חודשית קבועה (₪)</label>
+        <input type="number" class="form-control" id="fMonthlyDiscount" placeholder="ריק = ללא הנחה" min="0" step="0.01">
+      </div>
+    </div>
+
+    <div id="fActiveGroup" class="form-group" style="display:none;">
+      <label>
+        <input type="checkbox" id="fActive"> פעיל
+      </label>
+    </div>
+
+    <!-- ניהול ססיות קבועות — מוצג רק בעריכה -->
+    <div id="slotsSection" style="display:none;margin-top:8px;">
+      <hr style="margin:12px 0;border-color:#e2e8f0;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <strong style="font-size:14px;">ססיות קבועות שבועיות</strong>
+      </div>
+      <div id="slotsList" style="margin-bottom:10px;font-size:13px;"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;align-items:end;">
+        <div class="form-group" style="margin:0;">
+          <label style="font-size:12px;">יום</label>
+          <select class="form-control" id="sDay" style="font-size:13px;">
+            <option value="0">ראשון</option>
+            <option value="1">שני</option>
+            <option value="2">שלישי</option>
+            <option value="3">רביעי</option>
+            <option value="4">חמישי</option>
+            <option value="5">שישי</option>
+            <option value="6">שבת</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin:0;">
+          <label style="font-size:12px;">שעת התחלה</label>
+          <input type="time" class="form-control" id="sStart" style="font-size:13px;">
+        </div>
+        <div class="form-group" style="margin:0;">
+          <label style="font-size:12px;">שעת סיום</label>
+          <input type="time" class="form-control" id="sEnd" style="font-size:13px;">
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="addSlot()" style="margin-bottom:0;">+ הוסף</button>
+      </div>
+    </div>
+
+    <div id="modalAlert" class="alert"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:12px;">
+      <button class="btn btn-ghost" onclick="closeModal()">ביטול</button>
+      <button class="btn btn-primary" onclick="saveTherapist()">שמור</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+  let therapists = [];
+  let currentEditId = null;
+
+  fetch('/auth/me').then(r => r.json()).then(u => {
+    document.getElementById('userName').textContent = u.name || u.email;
+  });
+
+  async function loadTherapists() {
+    try {
+      const res = await fetch('/api/therapists');
+      therapists = await res.json();
+      renderTable();
+    } catch (e) {
+      document.getElementById('therapistsTable').innerHTML =
+        '<tr><td colspan="7" style="color:#e53e3e;text-align:center;">שגיאה בטעינה</td></tr>';
+    }
+  }
+
+  function renderTable() {
+    const tbody = document.getElementById('therapistsTable');
+    if (!therapists.length) {
+      tbody.innerHTML = '<tr><td colspan="7" style="color:#718096;text-align:center;padding:24px;">אין מטפלים רשומים</td></tr>';
+      return;
+    }
+    tbody.innerHTML = therapists.map(t => `
+      <tr>
+        <td><strong>${t.name}</strong></td>
+        <td>${t.email}</td>
+        <td>${t.phone || '—'}</td>
+        <td>${t.type === 'fixed' ? '<span class="badge badge-blue">קבוע</span>' : '<span class="badge badge-gray">גמיש</span>'}</td>
+        <td>${t.slot_rate ? '₪' + parseFloat(t.slot_rate).toFixed(0) + '/חודש' : '—'}</td>
+        <td>${t.active ? '<span class="badge badge-green">פעיל</span>' : '<span class="badge badge-red">לא פעיל</span>'}</td>
+        <td>
+          <button class="btn btn-ghost btn-sm" onclick="editTherapist(${t.id})">✏️ עריכה</button>
+          <button class="btn btn-danger btn-sm" onclick="deactivate(${t.id})" ${!t.active ? 'disabled' : ''}>🚫</button>
+        </td>
+      </tr>
+    `).join('');
+  }
+
+  function openModal(t = null) {
+    currentEditId = t ? t.id : null;
+    document.getElementById('editId').value = t ? t.id : '';
+    document.getElementById('modalTitle').textContent = t ? 'עריכת מטפל' : 'הוספת מטפל';
+    document.getElementById('fName').value = t ? t.name : '';
+    document.getElementById('fEmail').value = t ? t.email : '';
+    document.getElementById('fPhone').value = t ? (t.phone || '') : '';
+    document.getElementById('fType').value = t ? t.type : 'fixed';
+    document.getElementById('fCalendarName').value = t ? (t.calendar_name || '') : '';
+    document.getElementById('fSlotRate').value = t && t.slot_rate ? parseFloat(t.slot_rate) : '';
+    document.getElementById('fMonthlyDiscount').value = t && t.monthly_discount ? parseFloat(t.monthly_discount) : '';
+    document.getElementById('fActive').checked = t ? t.active : true;
+    document.getElementById('fActiveGroup').style.display = t ? 'block' : 'none';
+    document.getElementById('slotsSection').style.display = t ? 'block' : 'none';
+    if (t) loadSlots(t.id);
+    hideAlert('modalAlert');
+    document.getElementById('modalOverlay').classList.add('open');
+  }
+
+  function closeModal() {
+    document.getElementById('modalOverlay').classList.remove('open');
+    currentEditId = null;
+  }
+
+  function editTherapist(id) {
+    openModal(therapists.find(t => t.id === id));
+  }
+
+  async function saveTherapist() {
+    const id = document.getElementById('editId').value;
+    const slotRateVal = document.getElementById('fSlotRate').value.trim();
+    const monthlyDiscountVal = document.getElementById('fMonthlyDiscount').value.trim();
+    const body = {
+      name: document.getElementById('fName').value.trim(),
+      email: document.getElementById('fEmail').value.trim(),
+      phone: document.getElementById('fPhone').value.trim() || null,
+      type: document.getElementById('fType').value,
+      calendar_name: document.getElementById('fCalendarName').value.trim() || null,
+      slot_rate: slotRateVal !== '' ? parseFloat(slotRateVal) : null,
+      monthly_discount: monthlyDiscountVal !== '' ? parseFloat(monthlyDiscountVal) : null,
+      active: document.getElementById('fActive').checked,
+    };
+    if (!body.name || !body.email) {
+      showAlert('modalAlert', 'שם ואימייל הם שדות חובה', 'error');
+      return;
+    }
+    try {
+      const res = await fetch(id ? `/api/therapists/${id}` : '/api/therapists', {
+        method: id ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) { showAlert('modalAlert', data.error || 'שגיאה', 'error'); return; }
+      closeModal();
+      showAlert('alertBox', id ? 'המטפל עודכן בהצלחה' : 'המטפל נוסף בהצלחה', 'success');
+      loadTherapists();
+    } catch (e) {
+      showAlert('modalAlert', 'שגיאת רשת', 'error');
+    }
+  }
+
+  async function deactivate(id) {
+    if (!confirm('האם לבטל את פעילות המטפל?')) return;
+    try {
+      await fetch(`/api/therapists/${id}`, { method: 'DELETE' });
+      showAlert('alertBox', 'המטפל הועבר לסטטוס לא פעיל', 'success');
+      loadTherapists();
+    } catch (e) {
+      showAlert('alertBox', 'שגיאה', 'error');
+    }
+  }
+
+  // --- ניהול ססיות ---
+
+  async function loadSlots(therapistId) {
+    const container = document.getElementById('slotsList');
+    container.innerHTML = '<span style="color:#718096;">טוען...</span>';
+    try {
+      const res = await fetch(`/api/therapists/${therapistId}/slots`);
+      const slots = await res.json();
+      renderSlots(slots, therapistId);
+    } catch (e) {
+      container.innerHTML = '<span style="color:#e53e3e;">שגיאה בטעינת ססיות</span>';
+    }
+  }
+
+  function renderSlots(slots, therapistId) {
+    const container = document.getElementById('slotsList');
+    const active = slots.filter(s => s.active);
+    if (!active.length) {
+      container.innerHTML = '<div style="color:#718096;font-style:italic;">אין ססיות קבועות</div>';
+      return;
+    }
+    container.innerHTML = active.map(s => `
+      <div style="display:flex;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid #f0f4f8;">
+        <span style="font-weight:500;min-width:48px;">${DAY_NAMES[s.day_of_week]}</span>
+        <span>${s.start_time.slice(0,5)} – ${s.end_time.slice(0,5)}</span>
+        <button class="btn btn-danger btn-sm" style="margin-right:auto;padding:2px 8px;" onclick="deleteSlot(${therapistId}, ${s.id})">✕</button>
+      </div>
+    `).join('');
+  }
+
+  async function addSlot() {
+    if (!currentEditId) return;
+    const day_of_week = parseInt(document.getElementById('sDay').value);
+    const start_time = document.getElementById('sStart').value;
+    const end_time = document.getElementById('sEnd').value;
+    if (!start_time || !end_time) {
+      showAlert('modalAlert', 'יש להזין שעת התחלה ושעת סיום', 'error');
+      return;
+    }
+    if (start_time >= end_time) {
+      showAlert('modalAlert', 'שעת הסיום חייבת להיות אחרי שעת ההתחלה', 'error');
+      return;
+    }
+    try {
+      const res = await fetch(`/api/therapists/${currentEditId}/slots`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ day_of_week, start_time, end_time }),
+      });
+      if (!res.ok) {
+        const d = await res.json();
+        showAlert('modalAlert', d.error || 'שגיאה', 'error');
+        return;
+      }
+      document.getElementById('sStart').value = '';
+      document.getElementById('sEnd').value = '';
+      loadSlots(currentEditId);
+    } catch (e) {
+      showAlert('modalAlert', 'שגיאת רשת', 'error');
+    }
+  }
+
+  async function deleteSlot(therapistId, slotId) {
+    try {
+      await fetch(`/api/therapists/${therapistId}/slots/${slotId}`, { method: 'DELETE' });
+      loadSlots(therapistId);
+    } catch (e) {
+      showAlert('modalAlert', 'שגיאת רשת', 'error');
+    }
+  }
+
+  function showAlert(id, msg, type) {
+    const el = document.getElementById(id);
+    el.textContent = msg;
+    el.className = `alert alert-${type} show`;
+    setTimeout(() => el.classList.remove('show'), 4000);
+  }
+  function hideAlert(id) {
+    document.getElementById(id).className = 'alert';
+  }
+
+  loadTherapists();
+</script>
+</body>
+</html>

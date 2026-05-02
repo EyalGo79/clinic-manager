@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>קליניקה — לוח זמנים</title>
+  <link rel="stylesheet" href="/style.css">
+  <!-- FullCalendar -->
+  <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@fullcalendar/core@6.1.11/locales/he.global.min.js"></script>
+  <style>
+    #calendarWrap { background:#fff; border-radius:10px; padding:20px; box-shadow:0 1px 4px rgba(0,0,0,.08); }
+    .fc-event { cursor: pointer; }
+    .fc .fc-toolbar-title { font-size: 16px; }
+    .filter-bar { display:flex; gap:12px; align-items:center; margin-bottom:20px; flex-wrap:wrap; }
+    .filter-bar select, .filter-bar input { padding:8px 12px; border:1.5px solid #e2e8f0; border-radius:7px; font-size:14px; }
+  </style>
+</head>
+<body>
+<div class="layout">
+
+  <aside class="sidebar">
+    <div class="sidebar-logo"><span>🏥</span>קליניקה</div>
+    <nav>
+      <a href="/admin/index.html"><span class="icon">📊</span>לוח מחוונים</a>
+      <a href="/admin/schedule.html" class="active"><span class="icon">📅</span>לוח זמנים</a>
+      <a href="/admin/therapists.html"><span class="icon">👥</span>מטפלים</a>
+      <a href="/admin/billing.html"><span class="icon">💰</span>חיובים</a>
+      <a href="/admin/settings.html"><span class="icon">⚙️</span>הגדרות</a>
+    </nav>
+    <div class="sidebar-user">
+      <div class="name" id="userName">...</div>
+      <div class="role">מנהל</div>
+      <form action="/auth/logout" method="post">
+        <button class="btn-logout" type="submit">יציאה</button>
+      </form>
+    </div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <h2>לוח זמנים</h2>
+      <button class="btn btn-primary" onclick="openNewModal()">+ פגישה חדשה</button>
+    </div>
+
+    <div class="content">
+      <div id="alertBox" class="alert"></div>
+
+      <div class="filter-bar">
+        <label style="font-size:13px;font-weight:600;">סנן לפי מטפל:</label>
+        <select id="filterTherapist" onchange="loadEvents()">
+          <option value="">כל המטפלים</option>
+        </select>
+      </div>
+
+      <div id="calendarWrap">
+        <div id="calendar"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal פגישה -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal()">✕</button>
+    <h3 id="modalTitle">פגישה חדשה</h3>
+    <input type="hidden" id="editSessionId">
+
+    <div class="form-group">
+      <label>מטפל *</label>
+      <select class="form-control" id="fTherapist"></select>
+    </div>
+    <div class="form-group">
+      <label>תאריך ושעת התחלה *</label>
+      <input type="datetime-local" class="form-control" id="fStart">
+    </div>
+    <div class="form-group">
+      <label>תאריך ושעת סיום *</label>
+      <input type="datetime-local" class="form-control" id="fEnd">
+    </div>
+    <div class="form-group">
+      <label>הערות</label>
+      <textarea class="form-control" id="fNotes" rows="2"></textarea>
+    </div>
+    <div id="modalAlert" class="alert"></div>
+
+    <div style="display:flex;gap:10px;justify-content:space-between;margin-top:8px;">
+      <button class="btn btn-danger btn-sm" id="cancelBtn" onclick="cancelSession()" style="display:none;">🚫 ביטול פגישה</button>
+      <div style="display:flex;gap:8px;margin-right:auto;">
+        <button class="btn btn-ghost" onclick="closeModal()">סגור</button>
+        <button class="btn btn-primary" id="saveBtn" onclick="saveSession()">שמור</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal ביטול -->
+<div class="modal-overlay" id="cancelModalOverlay">
+  <div class="modal" style="width:360px;">
+    <button class="modal-close" onclick="closeCancelModal()">✕</button>
+    <h3>ביטול פגישה</h3>
+    <p style="font-size:14px;color:#4a5568;margin-bottom:16px;" id="cancelWarning"></p>
+    <div class="form-group" id="waiveGroup" style="display:none;">
+      <label>
+        <input type="checkbox" id="waiveCharge"> פטור מחיוב (ביטול חריג)
+      </label>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-ghost" onclick="closeCancelModal()">חזרה</button>
+      <button class="btn btn-danger" onclick="confirmCancel()">אשר ביטול</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  let calendar;
+  let therapists = [];
+  let cancelingId = null;
+
+  fetch('/auth/me').then(r => r.json()).then(u => {
+    document.getElementById('userName').textContent = u.name || u.email;
+  });
+
+  // טען מטפלים לסלקטים
+  async function loadTherapists() {
+    const res = await fetch('/api/therapists');
+    therapists = await res.json();
+    const filterSel = document.getElementById('filterTherapist');
+    const formSel = document.getElementById('fTherapist');
+    therapists.forEach(t => {
+      filterSel.add(new Option(t.name, t.id));
+      formSel.add(new Option(t.name, t.id));
+    });
+  }
+
+  // צבע לפי מטפל
+  const COLORS = ['#4299e1','#48bb78','#ed8936','#9f7aea','#f56565','#38b2ac','#ecc94b'];
+  function therapistColor(id) {
+    const idx = therapists.findIndex(t => t.id === id);
+    return COLORS[idx % COLORS.length] || '#4299e1';
+  }
+
+  async function loadEvents() {
+    const therapistId = document.getElementById('filterTherapist').value;
+    const url = `/api/sessions${therapistId ? '?therapist_id=' + therapistId : ''}`;
+    const res = await fetch(url);
+    const sessions = await res.json();
+
+    const events = sessions.map(s => ({
+      id: s.id,
+      title: s.therapist_name || 'לא שויך',
+      start: s.start_time,
+      end: s.end_time,
+      backgroundColor: s.status === 'cancelled' || s.status === 'cancelled_charged'
+        ? '#a0aec0' : therapistColor(s.therapist_id),
+      extendedProps: s,
+    }));
+
+    calendar.removeAllEvents();
+    calendar.addEventSource(events);
+  }
+
+  function initCalendar() {
+    calendar = new FullCalendar.Calendar(document.getElementById('calendar'), {
+      locale: 'he',
+      direction: 'rtl',
+      initialView: 'timeGridWeek',
+      headerToolbar: {
+        start: 'today prev,next',
+        center: 'title',
+        end: 'dayGridMonth,timeGridWeek,timeGridDay',
+      },
+      slotMinTime: '07:00:00',
+      slotMaxTime: '22:00:00',
+      height: 680,
+      allDaySlot: false,
+      eventClick: (info) => openEditModal(info.event.extendedProps),
+      eventDidMount: (info) => {
+        const s = info.event.extendedProps;
+        if (s.status === 'cancelled_charged') {
+          info.el.style.textDecoration = 'line-through';
+          info.el.style.opacity = '0.7';
+        }
+      },
+    });
+    calendar.render();
+  }
+
+  function toLocalDatetimeInput(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return d.getFullYear() + '-' +
+      String(d.getMonth()+1).padStart(2,'0') + '-' +
+      String(d.getDate()).padStart(2,'0') + 'T' +
+      String(d.getHours()).padStart(2,'0') + ':' +
+      String(d.getMinutes()).padStart(2,'0');
+  }
+
+  function localToISO(localStr) {
+    if (!localStr) return localStr;
+    const d = new Date(localStr);
+    const off = -d.getTimezoneOffset();
+    const sign = off >= 0 ? '+' : '-';
+    const hh = String(Math.floor(Math.abs(off) / 60)).padStart(2, '0');
+    const mm = String(Math.abs(off) % 60).padStart(2, '0');
+    return localStr + sign + hh + ':' + mm;
+  }
+
+  function openNewModal() {
+    document.getElementById('editSessionId').value = '';
+    document.getElementById('modalTitle').textContent = 'פגישה חדשה';
+    document.getElementById('fStart').value = toLocalDatetimeInput(new Date().toISOString());
+    document.getElementById('fEnd').value = '';
+    document.getElementById('fNotes').value = '';
+    document.getElementById('cancelBtn').style.display = 'none';
+    document.getElementById('saveBtn').style.display = '';
+    hideAlert('modalAlert');
+    document.getElementById('modalOverlay').classList.add('open');
+  }
+
+  function openEditModal(s) {
+    document.getElementById('editSessionId').value = s.id;
+    document.getElementById('modalTitle').textContent = 'עריכת פגישה';
+    document.getElementById('fTherapist').value = s.therapist_id;
+    document.getElementById('fStart').value = toLocalDatetimeInput(s.start_time);
+    document.getElementById('fEnd').value = toLocalDatetimeInput(s.end_time);
+    document.getElementById('fNotes').value = s.notes || '';
+
+    const isCancelled = s.status === 'cancelled' || s.status === 'cancelled_charged';
+    document.getElementById('cancelBtn').style.display = isCancelled ? 'none' : '';
+    document.getElementById('saveBtn').style.display = isCancelled ? 'none' : '';
+    hideAlert('modalAlert');
+    document.getElementById('modalOverlay').classList.add('open');
+  }
+
+  function closeModal() { document.getElementById('modalOverlay').classList.remove('open'); }
+
+  async function saveSession() {
+    const id = document.getElementById('editSessionId').value;
+    const body = {
+      therapist_id: parseInt(document.getElementById('fTherapist').value),
+      start_time: localToISO(document.getElementById('fStart').value),
+      end_time: localToISO(document.getElementById('fEnd').value),
+      notes: document.getElementById('fNotes').value || null,
+    };
+    if (!body.therapist_id || !body.start_time || !body.end_time) {
+      showAlert('modalAlert', 'יש למלא את כל שדות החובה', 'error'); return;
+    }
+    try {
+      const res = await fetch(id ? `/api/sessions/${id}` : '/api/sessions', {
+        method: id ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) { showAlert('modalAlert', data.error || 'שגיאה', 'error'); return; }
+      closeModal();
+      showAlert('alertBox', 'הפגישה נשמרה בהצלחה', 'success');
+      loadEvents();
+    } catch (e) {
+      showAlert('modalAlert', 'שגיאת רשת', 'error');
+    }
+  }
+
+  function cancelSession() {
+    cancelingId = document.getElementById('editSessionId').value;
+    const start = new Date(document.getElementById('fStart').value);
+    const hoursUntil = (start - new Date()) / 3600000;
+    const isLate = hoursUntil < 24 && hoursUntil > 0;
+
+    document.getElementById('cancelWarning').textContent = isLate
+      ? `⚠️ הפגישה מתחילה בעוד פחות מ-24 שעות — תחויב אוטומטית אלא אם תסמן פטור.`
+      : 'הפגישה תבוטל ללא חיוב.';
+    document.getElementById('waiveGroup').style.display = isLate ? 'block' : 'none';
+    document.getElementById('waiveCharge').checked = false;
+
+    closeModal();
+    document.getElementById('cancelModalOverlay').classList.add('open');
+  }
+
+  function closeCancelModal() {
+    document.getElementById('cancelModalOverlay').classList.remove('open');
+    cancelingId = null;
+  }
+
+  async function confirmCancel() {
+    if (!cancelingId) return;
+    const waive = document.getElementById('waiveCharge').checked;
+    try {
+      const res = await fetch(`/api/sessions/${cancelingId}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ waive_charge: waive }),
+      });
+      const data = await res.json();
+      closeCancelModal();
+      showAlert('alertBox', data.message || 'הפגישה בוטלה', data.charged ? 'error' : 'success');
+      loadEvents();
+    } catch (e) {
+      showAlert('alertBox', 'שגיאת רשת', 'error');
+    }
+  }
+
+  function showAlert(id, msg, type) {
+    const el = document.getElementById(id);
+    el.textContent = msg;
+    el.className = `alert alert-${type} show`;
+    if (id === 'alertBox') setTimeout(() => el.classList.remove('show'), 5000);
+  }
+  function hideAlert(id) { document.getElementById(id).className = 'alert'; }
+
+  (async () => {
+    await loadTherapists();
+    initCalendar();
+    // סנכרון גוגל קאלנדר ברקע — לא מחכים לתוצאה
+    fetch('/api/calendar/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    }).then(r => r.json()).then(data => {
+      if (data.imported > 0) loadEvents();
+    }).catch(() => {});
+    loadEvents();
+  })();
+</script>
+</body>
+</html>
