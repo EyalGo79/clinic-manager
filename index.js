@@ -15,6 +15,8 @@ const settingsRoutes = require('./src/routes/settings');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+app.set('trust proxy', 1);
+
 app.use(cors({ origin: process.env.CLIENT_ORIGIN || `http://localhost:${PORT}`, credentials: true }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -25,7 +27,8 @@ app.use(session({
   saveUninitialized: false,
   cookie: {
     secure: process.env.NODE_ENV === 'production',
-    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 ימים
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    maxAge: 7 * 24 * 60 * 60 * 1000,
   },
 }));
 
