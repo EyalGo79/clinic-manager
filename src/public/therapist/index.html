@@ -94,6 +94,18 @@
       <label>הערות (אופציונלי)</label>
       <input type="text" class="form-control" id="sNotes" placeholder="הערה חופשית">
     </div>
+    <div id="recurringSection">
+      <div class="form-group" style="margin-bottom:10px;">
+        <label style="display:flex;align-items:center;gap:8px;font-weight:600;cursor:pointer;">
+          <input type="checkbox" id="sRecurring" onchange="toggleRecurring()">
+          חזרה שבועית
+        </label>
+      </div>
+      <div id="recurringExtra" style="display:none;" class="form-group">
+        <label>עד תאריך</label>
+        <input type="date" class="form-control" id="sRepeatUntil">
+      </div>
+    </div>
     <div id="sessionModalAlert" class="alert"></div>
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:12px;">
       <button class="btn btn-ghost" onclick="closeSessionModal()">ביטול</button>
@@ -120,6 +132,10 @@
     document.getElementById('sStart').value = '';
     document.getElementById('sEnd').value = '';
     document.getElementById('sNotes').value = '';
+    document.getElementById('sRecurring').checked = false;
+    document.getElementById('sRepeatUntil').value = '';
+    document.getElementById('recurringExtra').style.display = 'none';
+    document.getElementById('recurringSection').style.display = '';
     document.getElementById('sessionModalAlert').className = 'alert';
     document.getElementById('sessionModal').classList.add('open');
   }
@@ -133,8 +149,17 @@
     document.getElementById('sStart').value = start.toTimeString().slice(0, 5);
     document.getElementById('sEnd').value = end.toTimeString().slice(0, 5);
     document.getElementById('sNotes').value = s.notes || '';
+    document.getElementById('sRecurring').checked = false;
+    document.getElementById('sRepeatUntil').value = '';
+    document.getElementById('recurringExtra').style.display = 'none';
+    document.getElementById('recurringSection').style.display = 'none'; // no recurring when editing
     document.getElementById('sessionModalAlert').className = 'alert';
     document.getElementById('sessionModal').classList.add('open');
+  }
+
+  function toggleRecurring() {
+    const on = document.getElementById('sRecurring').checked;
+    document.getElementById('recurringExtra').style.display = on ? '' : 'none';
   }
 
   function closeSessionModal() {
@@ -157,6 +182,8 @@
     const end = document.getElementById('sEnd').value;
     const notes = document.getElementById('sNotes').value.trim() || null;
     const editId = document.getElementById('editSessionId').value;
+    const isRecurring = document.getElementById('sRecurring').checked;
+    const repeatUntil = document.getElementById('sRepeatUntil').value;
 
     if (!date || !start || !end) {
       showSessionAlert('יש למלא תאריך, שעת התחלה ושעת סיום', 'error');
@@ -168,6 +195,31 @@
 
     if (new Date(start_time) >= new Date(end_time)) {
       showSessionAlert('שעת הסיום חייבת להיות אחרי שעת ההתחלה', 'error');
+      return;
+    }
+
+    if (isRecurring && !editId) {
+      if (!repeatUntil) {
+        showSessionAlert('יש לבחור תאריך סיום לחזרה השבועית', 'error');
+        return;
+      }
+      try {
+        const res = await fetch('/api/sessions/recurring', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ therapist_id: myId, start_time, end_time, notes, repeat_until: repeatUntil }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          showSessionAlert(data.error || 'שגיאה', 'error');
+          return;
+        }
+        closeSessionModal();
+        calendar.refetchEvents();
+        loadStats();
+      } catch (e) {
+        showSessionAlert('שגיאת רשת', 'error');
+      }
       return;
     }
 

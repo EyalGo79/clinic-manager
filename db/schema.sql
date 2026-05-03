@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   cancelled_at TIMESTAMP,
   cancellation_waived BOOLEAN DEFAULT false, -- המנהל פטר מחיוב
   notes TEXT,
+  series_id UUID,
   created_at TIMESTAMP DEFAULT NOW()
 );
 

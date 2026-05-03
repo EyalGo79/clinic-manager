@@ -7,35 +7,35 @@ const { upsertGoogleEvent, deleteGoogleEvent } = require('./calendar');
 const BUFFER_MINUTES = 15; // רבע שעה מינימום בין פגישות של מטפלים שונים
 const LATE_CANCEL_HOURS = 24;
 
-// בדיקת חפיפה + בופר 15 דקות — רק בין מטפלים שונים
-async function hasConflict(therapistId, startTime, endTime, excludeId = null) {
+// בדיקת חפיפה + בופר — מחזיר את הפגישה המתנגשת או null
+async function getConflict(therapistId, startTime, endTime, excludeId = null) {
   const bufferMs = BUFFER_MINUTES * 60 * 1000;
   const bufferedStart = new Date(new Date(startTime).getTime() - bufferMs);
   const bufferedEnd = new Date(new Date(endTime).getTime() + bufferMs);
 
-  // חפיפה מדויקת עם אותו מטפל (ללא בופר)
-  const sameTherapistConflict = await pool.query(`
-    SELECT id FROM sessions
-    WHERE therapist_id = $1
-      AND status != 'cancelled'
-      AND id != $2
-      AND start_time < $3
-      AND end_time > $4
+  const sameTherapist = await pool.query(`
+    SELECT id, start_time, end_time FROM sessions
+    WHERE therapist_id = $1 AND status != 'cancelled' AND id != $2
+      AND start_time < $3 AND end_time > $4
+    LIMIT 1
   `, [therapistId, excludeId || 0, endTime, startTime]);
+  if (sameTherapist.rows.length > 0) return sameTherapist.rows[0];
 
-  if (sameTherapistConflict.rows.length > 0) return true;
-
-  // חפיפה עם בופר עם מטפלים אחרים (חדר משותף)
-  const otherTherapistConflict = await pool.query(`
-    SELECT id FROM sessions
-    WHERE therapist_id != $1
-      AND status != 'cancelled'
-      AND id != $2
-      AND start_time < $3
-      AND end_time > $4
+  const otherTherapist = await pool.query(`
+    SELECT s.id, s.start_time, s.end_time, t.name AS therapist_name
+    FROM sessions s
+    LEFT JOIN therapists t ON s.therapist_id = t.id
+    WHERE s.therapist_id != $1 AND s.status != 'cancelled' AND s.id != $2
+      AND s.start_time < $3 AND s.end_time > $4
+    LIMIT 1
   `, [therapistId, excludeId || 0, bufferedEnd, bufferedStart]);
+  if (otherTherapist.rows.length > 0) return otherTherapist.rows[0];
 
-  return otherTherapistConflict.rows.length > 0;
+  return null;
+}
+
+async function hasConflict(therapistId, startTime, endTime, excludeId = null) {
+  return (await getConflict(therapistId, startTime, endTime, excludeId)) !== null;
 }
 
 // GET /api/sessions — פגישות (מנהל: הכל, מטפל: שלו בלבד)
@@ -155,6 +155,78 @@ router.put('/:id', isAdminOrTherapist, async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// POST /api/sessions/recurring — יצירת סדרת פגישות שבועיות
+router.post('/recurring', isAdminOrTherapist, async (req, res) => {
+  const { therapist_id, start_time, end_time, notes, repeat_until } = req.body;
+  if (!therapist_id || !start_time || !end_time || !repeat_until) {
+    return res.status(400).json({ error: 'therapist_id, start_time, end_time ו-repeat_until הם חובה' });
+  }
+  if (req.user.role === 'therapist' && req.user.id !== parseInt(therapist_id)) {
+    return res.status(403).json({ error: 'אין הרשאה' });
+  }
+  const start = new Date(start_time);
+  const end = new Date(end_time);
+  const until = new Date(repeat_until);
+  if (start >= end) {
+    return res.status(400).json({ error: 'שעת סיום חייבת להיות אחרי שעת התחלה' });
+  }
+  if (until < start) {
+    return res.status(400).json({ error: 'תאריך הסיום חייב להיות אחרי תאריך ההתחלה' });
+  }
+
+  // בנה רשימת כל המועדים השבועיים
+  const duration = end - start;
+  const occurrences = [];
+  let cur = new Date(start);
+  while (cur <= until) {
+    const occStart = new Date(cur);
+    const occEnd = new Date(cur.getTime() + duration);
+    occurrences.push({ start: occStart, end: occEnd });
+    cur.setDate(cur.getDate() + 7);
+  }
+
+  if (occurrences.length === 0) {
+    return res.status(400).json({ error: 'לא נמצאו מועדים בטווח שנבחר' });
+  }
+
+  // בדוק קונפליקטים לכל המועדים לפני הכנסה
+  for (const occ of occurrences) {
+    const conflict = await getConflict(therapist_id, occ.start, occ.end);
+    if (conflict) {
+      const conflictDate = new Date(conflict.start_time).toLocaleDateString('he-IL', {
+        weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+      });
+      const conflictStartTime = new Date(conflict.start_time).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
+      const conflictEndTime = new Date(conflict.end_time).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
+      const occDate = occ.start.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' });
+      const who = conflict.therapist_name ? ` (${conflict.therapist_name})` : '';
+      return res.status(409).json({
+        error: `קונפליקט בתאריך ${occDate}: קיימת פגישה${who} בשעות ${conflictStartTime}–${conflictEndTime}`,
+      });
+    }
+  }
+
+  // הכנס את כל הפגישות עם series_id משותף
+  const seriesId = require('crypto').randomUUID();
+  const therapistRes = await pool.query('SELECT name FROM therapists WHERE id = $1', [therapist_id]);
+  const therapistName = therapistRes.rows[0]?.name;
+
+  const inserted = [];
+  for (const occ of occurrences) {
+    const result = await pool.query(
+      `INSERT INTO sessions (therapist_id, start_time, end_time, notes, series_id)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING *`,
+      [therapist_id, occ.start, occ.end, notes || null, seriesId]
+    );
+    const session = result.rows[0];
+    inserted.push(session);
+    upsertGoogleEvent({ ...session, therapist_name: therapistName });
+  }
+
+  res.status(201).json({ count: inserted.length, series_id: seriesId, sessions: inserted });
 });
 
 // POST /api/sessions/:id/cancel — ביטול פגישה
