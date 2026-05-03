@@ -42,6 +42,7 @@ async function hasConflict(therapistId, startTime, endTime, excludeId = null) {
 router.get('/', isAdminOrTherapist, async (req, res) => {
   try {
     const { from, to, therapist_id } = req.query;
+    console.log('[sessions GET] role:', req.user.role, 'id:', req.user.id, 'from:', from, 'to:', to);
     let params = [];
     let conditions = [];
 
@@ -88,6 +89,7 @@ router.get('/', isAdminOrTherapist, async (req, res) => {
           _other: true,
         };
       });
+      console.log('[sessions GET] therapist returning', rows.length, 'rows, mine:', rows.filter(r => !r._other).length, 'other:', rows.filter(r => r._other).length);
       return res.json(rows);
     }
 
