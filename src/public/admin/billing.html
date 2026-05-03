@@ -67,10 +67,13 @@
   <div class="main">
     <div class="topbar">
       <h2>חיובים חודשיים</h2>
-      <div class="month-nav">
-        <button onclick="changeMonth(-1)">‹</button>
-        <span id="monthLabel"></span>
-        <button onclick="changeMonth(1)">›</button>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div class="month-nav">
+          <button onclick="changeMonth(-1)">‹</button>
+          <span id="monthLabel"></span>
+          <button onclick="changeMonth(1)">›</button>
+        </div>
+        <button id="lockBtn" class="btn btn-ghost btn-sm" onclick="lockMonth()" style="display:none;">🔒 נעל חודש</button>
       </div>
     </div>
 
@@ -182,6 +185,24 @@
     document.getElementById('userName').textContent = u.name || u.email;
   });
 
+  async function lockMonth() {
+    if (!confirm(`לנעול את ${MONTHS_HE[currentMonth-1]} ${currentYear}? הנתונים יוקפאו ולא ישתנו גם אם פגישות ישתנו.`)) return;
+    const btn = document.getElementById('lockBtn');
+    btn.disabled = true;
+    btn.textContent = 'נועל...';
+    try {
+      const res = await fetch(`/api/billing/lock/${currentYear}/${currentMonth}`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) { alert('שגיאה: ' + (data.error || '')); return; }
+      btn.textContent = '✓ נעול';
+      loadBilling();
+    } catch (e) {
+      alert('שגיאת רשת');
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
   function updateLabel() {
     document.getElementById('monthLabel').textContent =
       MONTHS_HE[currentMonth - 1] + ' ' + currentYear;
@@ -198,6 +219,12 @@
   async function loadBilling() {
     const tbody = document.getElementById('billingTable');
     tbody.innerHTML = '<tr><td colspan="5" class="loading">טוען...</td></tr>';
+
+    // הצג כפתור נעילה רק לחודשים שעברו
+    const now = new Date();
+    const isPast = currentYear < now.getFullYear() ||
+      (currentYear === now.getFullYear() && currentMonth < now.getMonth() + 1);
+    document.getElementById('lockBtn').style.display = isPast ? '' : 'none';
 
     try {
       const res = await fetch(`/api/billing/summary/${currentYear}/${currentMonth}`);

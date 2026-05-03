@@ -212,6 +212,53 @@ function invoiceToBilling(inv) {
   };
 }
 
+// POST /api/billing/lock/:year/:month — נעילת חודש: שמור snapshot לכל המטפלים
+router.post('/lock/:year/:month', isAdmin, async (req, res) => {
+  const { year, month } = req.params;
+  try {
+    const [therapistsRes, tiers] = await Promise.all([
+      pool.query('SELECT id, slot_rate FROM therapists WHERE active = true'),
+      fetchTiers(),
+    ]);
+    const results = await Promise.all(therapistsRes.rows.map(async (t) => {
+      const [sessionsRes, slotsRes] = await Promise.all([
+        pool.query(
+          `SELECT start_time, end_time,
+                  EXTRACT(EPOCH FROM (COALESCE(original_end_time, end_time) - start_time)) / 3600 AS hours
+           FROM sessions
+           WHERE therapist_id = $1
+             AND EXTRACT(YEAR FROM start_time AT TIME ZONE 'Asia/Jerusalem') = $2
+             AND EXTRACT(MONTH FROM start_time AT TIME ZONE 'Asia/Jerusalem') = $3
+             AND status IN ('confirmed', 'cancelled_charged')
+             AND cancellation_waived = false`,
+          [t.id, year, month]
+        ),
+        pool.query('SELECT day_of_week, start_time, end_time FROM therapist_slots WHERE therapist_id = $1 AND active = true', [t.id]),
+      ]);
+      const billing = calculateBilling(sessionsRes.rows, slotsRes.rows, t.slot_rate, tiers);
+      await pool.query(
+        `INSERT INTO invoices
+           (therapist_id, year, month, total_hours, total_amount, rate_per_hour,
+            has_slot, base_price, extra_hours, fixed_slot_hours, slot_rate_snapshot, extra_rate_per_hour)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+         ON CONFLICT (therapist_id, year, month) DO UPDATE SET
+           total_hours=$4, total_amount=$5, rate_per_hour=$6,
+           has_slot=$7, base_price=$8, extra_hours=$9,
+           fixed_slot_hours=$10, slot_rate_snapshot=$11, extra_rate_per_hour=$12,
+           generated_at=NOW()`,
+        [t.id, year, month,
+         billing.totalHours, billing.totalAmount, billing.ratePerHour,
+         billing.hasSlot, billing.basePrice, billing.extraHours, billing.fixedSlotHours,
+         billing.slotRate, billing.extraRatePerHour || null]
+      );
+      return t.id;
+    }));
+    res.json({ locked: results.length, year: parseInt(year), month: parseInt(month) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/billing/summary/:year/:month
 router.get('/summary/:year/:month', isAdmin, async (req, res) => {
   const { year, month } = req.params;
@@ -227,10 +274,27 @@ router.get('/summary/:year/:month', isAdmin, async (req, res) => {
         let billing;
 
         if (isPastMonth(year, month)) {
-          // חודש עבר — snapshot
-          let snapshot = await getSnapshot(t.id, year, month);
-          if (!snapshot) snapshot = await createSnapshot(t.id, year, month);
-          billing = invoiceToBilling(snapshot);
+          const snapshot = await getSnapshot(t.id, year, month);
+          if (snapshot) {
+            billing = invoiceToBilling(snapshot);
+          } else {
+            // אין snapshot — חישוב חי
+            const [sessionsRes, slotsRes] = await Promise.all([
+              pool.query(
+                `SELECT start_time, end_time,
+                        EXTRACT(EPOCH FROM (COALESCE(original_end_time, end_time) - start_time)) / 3600 AS hours
+                 FROM sessions
+                 WHERE therapist_id = $1
+                   AND EXTRACT(YEAR FROM start_time AT TIME ZONE 'Asia/Jerusalem') = $2
+                   AND EXTRACT(MONTH FROM start_time AT TIME ZONE 'Asia/Jerusalem') = $3
+                   AND status IN ('confirmed', 'cancelled_charged')
+                   AND cancellation_waived = false`,
+                [t.id, year, month]
+              ),
+              pool.query('SELECT day_of_week, start_time, end_time FROM therapist_slots WHERE therapist_id = $1 AND active = true', [t.id]),
+            ]);
+            billing = calculateBilling(sessionsRes.rows, slotsRes.rows, t.slot_rate, tiers);
+          }
         } else {
           // חודש נוכחי — חישוב חי
           const [sessionsRes, slotsRes] = await Promise.all([
@@ -317,9 +381,14 @@ router.get('/:therapistId/:year/:month', isAdminOrTherapist, async (req, res) =>
     let frozenSlots = slotsRes.rows;
 
     if (isPastMonth(year, month)) {
-      let snapshot = await getSnapshot(therapistId, year, month);
-      if (!snapshot) snapshot = await createSnapshot(therapistId, year, month);
-      billing = invoiceToBilling(snapshot);
+      const snapshot = await getSnapshot(therapistId, year, month);
+      if (snapshot) {
+        billing = invoiceToBilling(snapshot);
+      } else {
+        const { slot_rate, monthly_discount } = therapistResult.rows[0];
+        billing = calculateBilling(sessionsRes.rows, slotsRes.rows, slot_rate, tiers);
+        await ensureMonthlyDiscount(therapistId, year, month, monthly_discount);
+      }
     } else {
       const { slot_rate, monthly_discount } = therapistResult.rows[0];
       billing = calculateBilling(sessionsRes.rows, slotsRes.rows, slot_rate, tiers);
