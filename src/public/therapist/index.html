@@ -210,6 +210,8 @@
       document.getElementById('cancelModal').querySelector('.btn-danger').style.display = '';
     }
     document.getElementById('cancelModalMsg').innerHTML = msg;
+    // סגור את מודל העריכה לפני שפותחים את מודל הביטול
+    document.getElementById('sessionModal').classList.remove('open');
     document.getElementById('cancelModal').classList.add('open');
   }
 
