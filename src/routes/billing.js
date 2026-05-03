@@ -30,9 +30,17 @@ function timeToMinutes(t) {
 function minutesInSlot(session, slots) {
   const start = new Date(session.start_time);
   const end   = new Date(session.end_time);
-  const dow      = start.getDay();
-  const startMin = start.getHours() * 60 + start.getMinutes();
-  const endMin   = end.getHours()   * 60 + end.getMinutes();
+
+  // המר לשעון ישראל (Asia/Jerusalem)
+  const toIsraelMinutes = (d) => {
+    const israelStr = d.toLocaleString('en-US', { timeZone: 'Asia/Jerusalem', hour: '2-digit', minute: '2-digit', hour12: false });
+    const [h, m] = israelStr.split(':').map(Number);
+    return h * 60 + m;
+  };
+
+  const dow      = new Date(start.toLocaleString('en-US', { timeZone: 'Asia/Jerusalem' })).getDay();
+  const startMin = toIsraelMinutes(start);
+  const endMin   = toIsraelMinutes(end);
 
   let overlap = 0;
   for (const slot of slots) {
