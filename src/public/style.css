@@ -253,6 +253,89 @@ tr:hover td { background: #f7fafc; }
 .loading { color: #718096; font-size: 14px; padding: 24px; text-align: center; }
 
 @media (max-width: 700px) {
-  .sidebar { width: 100%; height: auto; position: static; flex-direction: row; flex-wrap: wrap; }
-  .main { margin-right: 0; }
+  /* Sidebar הופך לתפריט תחתון */
+  .layout { flex-direction: column; }
+
+  .sidebar {
+    width: 100%;
+    height: auto;
+    position: fixed;
+    top: auto; bottom: 0; right: 0; left: 0;
+    flex-direction: row;
+    z-index: 100;
+    padding: 0;
+  }
+
+  .sidebar-logo { display: none; }
+
+  .sidebar nav {
+    display: flex;
+    flex-direction: row;
+    flex: 1;
+    padding: 0;
+    overflow-x: auto;
+  }
+
+  .sidebar nav a {
+    flex: 1;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 3px;
+    padding: 8px 4px;
+    font-size: 10px;
+    border-right: none;
+    border-top: 3px solid transparent;
+    min-width: 56px;
+    text-align: center;
+  }
+
+  .sidebar nav a.active,
+  .sidebar nav a:hover {
+    border-right-color: transparent;
+    border-top-color: #4299e1;
+  }
+
+  .sidebar nav a .icon { font-size: 20px; width: auto; }
+
+  .sidebar-user { display: none; }
+
+  .main {
+    margin-right: 0;
+    padding-bottom: 64px; /* מקום לתפריט תחתון */
+  }
+
+  .topbar {
+    padding: 12px 16px;
+    position: sticky;
+    top: 0;
+    z-index: 50;
+  }
+
+  .topbar h2 { font-size: 17px; }
+
+  .content { padding: 16px; }
+
+  .card { padding: 16px; }
+
+  .stats-grid { grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .stat-card { padding: 12px 10px; }
+  .stat-card .value { font-size: 20px; }
+
+  .modal {
+    width: 100%;
+    max-width: 100%;
+    max-height: 92vh;
+    border-radius: 16px 16px 0 0;
+    padding: 20px 16px;
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    margin: 0;
+  }
+
+  .modal-overlay.open {
+    align-items: flex-end;
+  }
+
+  th, td { padding: 8px 10px; font-size: 13px; }
 }
