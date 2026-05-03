@@ -190,7 +190,7 @@ async function createSnapshot(therapistId, year, month) {
      ON CONFLICT (therapist_id, year, month) DO NOTHING
      RETURNING *`,
     [therapistId, year, month,
-     billing.totalHours, finalAmount, billing.ratePerHour,
+     billing.totalHours, billing.totalAmount, billing.ratePerHour,
      billing.hasSlot, billing.basePrice, billing.extraHours, billing.fixedSlotHours,
      billing.slotRate, billing.extraRatePerHour || null]
   );
