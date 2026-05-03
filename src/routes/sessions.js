@@ -38,18 +38,16 @@ async function hasConflict(therapistId, startTime, endTime, excludeId = null) {
   return (await getConflict(therapistId, startTime, endTime, excludeId)) !== null;
 }
 
-// GET /api/sessions — פגישות (מנהל: הכל, מטפל: שלו בלבד)
+// GET /api/sessions — מנהל: הכל עם פרטים. מטפל: הכל, אבל פגישות של אחרים ללא פרטים
 router.get('/', isAdminOrTherapist, async (req, res) => {
   try {
     const { from, to, therapist_id } = req.query;
     let params = [];
     let conditions = [];
 
-    // מטפל רואה רק את שלו
-    const therapistFilter =
-      req.user.role === 'therapist' ? req.user.id : therapist_id;
-    if (therapistFilter) {
-      params.push(therapistFilter);
+    // מנהל יכול לסנן לפי therapist_id; מטפל — שולף הכל
+    if (req.user.role !== 'therapist' && therapist_id) {
+      params.push(therapist_id);
       conditions.push(`s.therapist_id = $${params.length}`);
     }
     if (from) {
@@ -71,6 +69,28 @@ router.get('/', isAdminOrTherapist, async (req, res) => {
        ORDER BY s.start_time`,
       params
     );
+
+    if (req.user.role === 'therapist') {
+      // פגישות של מטפלים אחרים — מסיר פרטים
+      const myId = req.user.id;
+      const rows = result.rows.map(s => {
+        if (s.therapist_id === myId) return s;
+        return {
+          id: s.id,
+          start_time: s.start_time,
+          end_time: s.end_time,
+          status: s.status,
+          therapist_id: null,
+          therapist_name: null,
+          notes: null,
+          google_event_id: null,
+          series_id: null,
+          _other: true,
+        };
+      });
+      return res.json(rows);
+    }
+
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: err.message });

@@ -299,16 +299,21 @@
         const sessions = await res.json();
         success(sessions.map(s => ({
           id: s.id,
-          title: s.status === 'cancelled_charged' ? '⚠️ בוטל (מחויב)' :
+          title: s._other ? 'תפוס' :
+                 s.status === 'cancelled_charged' ? '⚠️ בוטל (מחויב)' :
                  s.status === 'cancelled' ? '✕ בוטל' : 'פגישה',
           start: s.start_time,
           end: s.end_time,
-          backgroundColor: s.status === 'confirmed' ? '#4299e1' : '#a0aec0',
+          backgroundColor: s._other ? '#cbd5e0' :
+                           s.status === 'confirmed' ? '#4299e1' : '#a0aec0',
+          borderColor: s._other ? '#cbd5e0' : undefined,
+          textColor: s._other ? '#718096' : undefined,
           extendedProps: s,
         })));
       },
       eventClick: (info) => {
         const s = info.event.extendedProps;
+        if (s._other) return; // פגישות של אחרים — לא עושים כלום
         if (s.status === 'confirmed') {
           openEditSession(s);
         } else {
