@@ -159,7 +159,7 @@ async function createSnapshot(therapistId, year, month) {
   const [sessionsRes, therapistRes, slotsRes, adjRes, tiers] = await Promise.all([
     pool.query(
       `SELECT start_time, end_time,
-              EXTRACT(EPOCH FROM (end_time - start_time)) / 3600 AS hours
+              EXTRACT(EPOCH FROM (COALESCE(original_end_time, end_time) - start_time)) / 3600 AS hours
        FROM sessions
        WHERE therapist_id = $1
          AND EXTRACT(YEAR FROM start_time AT TIME ZONE 'Asia/Jerusalem') = $2
@@ -236,7 +236,7 @@ router.get('/summary/:year/:month', isAdmin, async (req, res) => {
           const [sessionsRes, slotsRes] = await Promise.all([
             pool.query(
               `SELECT start_time, end_time,
-                      EXTRACT(EPOCH FROM (end_time - start_time)) / 3600 AS hours
+                      EXTRACT(EPOCH FROM (COALESCE(original_end_time, end_time) - start_time)) / 3600 AS hours
                FROM sessions
                WHERE therapist_id = $1
                  AND EXTRACT(YEAR FROM start_time AT TIME ZONE 'Asia/Jerusalem') = $2
@@ -296,8 +296,8 @@ router.get('/:therapistId/:year/:month', isAdminOrTherapist, async (req, res) =>
     // שלוף sessions תמיד (לצורך תצוגת רשימת הפגישות)
     const [sessionsRes, slotsRes] = await Promise.all([
       pool.query(
-        `SELECT id, start_time, end_time, status,
-                EXTRACT(EPOCH FROM (end_time - start_time)) / 3600 AS hours
+        `SELECT id, start_time, end_time, original_end_time, status,
+                EXTRACT(EPOCH FROM (COALESCE(original_end_time, end_time) - start_time)) / 3600 AS hours
          FROM sessions
          WHERE therapist_id = $1
            AND EXTRACT(YEAR FROM start_time AT TIME ZONE 'Asia/Jerusalem') = $2

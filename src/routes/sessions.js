@@ -168,12 +168,24 @@ router.put('/:id', isAdminOrTherapist, async (req, res) => {
       });
     }
 
+    // קיצור ברגע האחרון — שמור end_time מקורי לצורך חיוב
+    const now = new Date();
+    const sessionStart = new Date(newStart);
+    const hoursUntil = (sessionStart - now) / (1000 * 60 * 60);
+    const isLate = hoursUntil < LATE_CANCEL_HOURS && hoursUntil > -LATE_CANCEL_HOURS;
+    const originalEnd = new Date(session.end_time);
+    const newEndDate = new Date(newEnd);
+    const isShorter = newEndDate < originalEnd;
+    // שמור original_end_time רק אם זה קיצור ברגע האחרון ועדיין לא שמרנו
+    const keepOriginalEnd = isLate && isShorter && !session.original_end_time;
+    const originalEndToStore = keepOriginalEnd ? session.end_time : session.original_end_time || null;
+
     const result = await pool.query(
       `UPDATE sessions
-       SET start_time = $1, end_time = $2, notes = COALESCE($3, notes)
-       WHERE id = $4
+       SET start_time = $1, end_time = $2, notes = COALESCE($3, notes), original_end_time = $4
+       WHERE id = $5
        RETURNING *`,
-      [newStart, newEnd, notes, req.params.id]
+      [newStart, newEnd, notes, originalEndToStore, req.params.id]
     );
     const updated = result.rows[0];
     const therapistRes = await pool.query('SELECT name FROM therapists WHERE id = $1', [session.therapist_id]);
@@ -256,14 +268,20 @@ router.post('/recurring', isAdminOrTherapist, async (req, res) => {
   res.status(201).json({ count: inserted.length, series_id: seriesId, sessions: inserted });
 });
 
-// POST /api/sessions/:id/cancel — ביטול פגישה
-router.post('/:id/cancel', isAdmin, async (req, res) => {
-  const { waive_charge } = req.body; // המנהל יכול לפטור מחיוב
+// POST /api/sessions/:id/cancel — ביטול פגישה (מנהל או מטפל שלו)
+router.post('/:id/cancel', isAdminOrTherapist, async (req, res) => {
+  const { waive_charge } = req.body; // רק מנהל יכול לפטור מחיוב
   try {
     const existing = await pool.query('SELECT * FROM sessions WHERE id = $1', [req.params.id]);
     if (!existing.rows[0]) return res.status(404).json({ error: 'לא נמצא' });
 
     const session = existing.rows[0];
+
+    // מטפל יכול לבטל רק את שלו
+    if (req.user.role === 'therapist' && req.user.id !== session.therapist_id) {
+      return res.status(403).json({ error: 'אין הרשאה' });
+    }
+
     const now = new Date();
     const sessionStart = new Date(session.start_time);
     const hoursUntil = (sessionStart - now) / (1000 * 60 * 60);
@@ -271,8 +289,8 @@ router.post('/:id/cancel', isAdmin, async (req, res) => {
     const isLateCancel = hoursUntil < LATE_CANCEL_HOURS && hoursUntil > 0;
     let newStatus = 'cancelled';
 
-    if (isLateCancel && !waive_charge) {
-      // ביטול מחויב — פחות מ-24 שעות ללא פטור
+    // ביטול מחויב — פחות מ-24 שעות, ורק מנהל יכול לפטור
+    if (isLateCancel && !(req.user.role === 'admin' && waive_charge)) {
       newStatus = 'cancelled_charged';
     }
 
@@ -281,7 +299,7 @@ router.post('/:id/cancel', isAdmin, async (req, res) => {
        SET status = $1, cancelled_at = NOW(), cancellation_waived = $2
        WHERE id = $3
        RETURNING *`,
-      [newStatus, waive_charge ? true : false, req.params.id]
+      [newStatus, req.user.role === 'admin' && waive_charge ? true : false, req.params.id]
     );
 
     // מחק מגוגל קאלנדר ברקע

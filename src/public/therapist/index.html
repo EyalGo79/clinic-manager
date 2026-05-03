@@ -61,12 +61,25 @@
   </div>
 </div>
 
-<!-- פרטי פגישה -->
+<!-- פרטי פגישה (מבוטלת) -->
 <div class="modal-overlay" id="detailModal">
   <div class="modal" style="width:360px;">
     <button class="modal-close" onclick="document.getElementById('detailModal').classList.remove('open')">✕</button>
     <h3>פרטי פגישה</h3>
     <div id="detailContent" style="font-size:14px;line-height:2;"></div>
+  </div>
+</div>
+
+<!-- מודל אישור ביטול -->
+<div class="modal-overlay" id="cancelModal">
+  <div class="modal" style="width:360px;">
+    <button class="modal-close" onclick="document.getElementById('cancelModal').classList.remove('open')">✕</button>
+    <h3>ביטול פגישה</h3>
+    <div id="cancelModalMsg" style="font-size:14px;line-height:1.8;margin-bottom:20px;"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;">
+      <button class="btn btn-ghost" onclick="document.getElementById('cancelModal').classList.remove('open')">חזרה</button>
+      <button class="btn btn-danger" onclick="confirmCancel()">כן, בטל פגישה</button>
+    </div>
   </div>
 </div>
 
@@ -108,8 +121,9 @@
     </div>
     <div id="sessionModalAlert" class="alert"></div>
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:12px;">
-      <button class="btn btn-ghost" onclick="closeSessionModal()">ביטול</button>
-      <button class="btn btn-primary" onclick="saveSession()">שמור</button>
+      <button class="btn btn-danger btn-sm" id="cancelSessionBtn" style="display:none;margin-left:auto;" onclick="requestCancel()">בטל פגישה</button>
+      <button class="btn btn-ghost" onclick="closeSessionModal()">סגור</button>
+      <button class="btn btn-primary" id="saveSessionBtn" onclick="saveSession()">שמור</button>
     </div>
   </div>
 </div>
@@ -136,9 +150,13 @@
     document.getElementById('sRepeatUntil').value = '';
     document.getElementById('recurringExtra').style.display = 'none';
     document.getElementById('recurringSection').style.display = '';
+    document.getElementById('cancelSessionBtn').style.display = 'none';
+    document.getElementById('saveSessionBtn').style.display = '';
     document.getElementById('sessionModalAlert').className = 'alert';
     document.getElementById('sessionModal').classList.add('open');
   }
+
+  let cancelSessionData = null; // { id, startTime, originalEndTime }
 
   function openEditSession(s) {
     document.getElementById('sessionModalTitle').textContent = 'עריכת פגישה';
@@ -152,8 +170,11 @@
     document.getElementById('sRecurring').checked = false;
     document.getElementById('sRepeatUntil').value = '';
     document.getElementById('recurringExtra').style.display = 'none';
-    document.getElementById('recurringSection').style.display = 'none'; // no recurring when editing
+    document.getElementById('recurringSection').style.display = 'none';
+    document.getElementById('cancelSessionBtn').style.display = '';
+    document.getElementById('saveSessionBtn').style.display = '';
     document.getElementById('sessionModalAlert').className = 'alert';
+    cancelSessionData = { id: s.id, startTime: s.start_time, originalEndTime: s.end_time };
     document.getElementById('sessionModal').classList.add('open');
   }
 
@@ -164,6 +185,54 @@
 
   function closeSessionModal() {
     document.getElementById('sessionModal').classList.remove('open');
+    cancelSessionData = null;
+  }
+
+  function requestCancel() {
+    if (!cancelSessionData) return;
+    const now = new Date();
+    const sessionStart = new Date(cancelSessionData.startTime);
+    const hoursUntil = (sessionStart - now) / (1000 * 60 * 60);
+    const isLate = hoursUntil < 24 && hoursUntil > 0;
+    const isPast = hoursUntil <= 0;
+
+    let msg;
+    if (isPast) {
+      msg = 'הפגישה כבר עברה. לא ניתן לבטל.';
+      document.getElementById('cancelModalMsg').innerHTML = msg;
+      document.getElementById('cancelModal').querySelector('.btn-danger').style.display = 'none';
+    } else if (isLate) {
+      const h = hoursUntil.toFixed(1);
+      msg = `⚠️ נותרו פחות מ-24 שעות לפגישה (${h} שעות).<br><br>הפגישה תבוטל אך <strong>תחויב במלואה</strong>.<br>האם אתה בטוח?`;
+      document.getElementById('cancelModal').querySelector('.btn-danger').style.display = '';
+    } else {
+      msg = 'האם אתה בטוח שברצונך לבטל את הפגישה?';
+      document.getElementById('cancelModal').querySelector('.btn-danger').style.display = '';
+    }
+    document.getElementById('cancelModalMsg').innerHTML = msg;
+    document.getElementById('cancelModal').classList.add('open');
+  }
+
+  async function confirmCancel() {
+    if (!cancelSessionData) return;
+    document.getElementById('cancelModal').classList.remove('open');
+    try {
+      const res = await fetch(`/api/sessions/${cancelSessionData.id}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showSessionAlert(data.error || 'שגיאה בביטול', 'error');
+        return;
+      }
+      closeSessionModal();
+      calendar.refetchEvents();
+      loadStats();
+    } catch (e) {
+      showSessionAlert('שגיאת רשת', 'error');
+    }
   }
 
   // המרת datetime-local string ל-ISO עם offset מקומי
@@ -229,6 +298,22 @@
       const body = editId
         ? { start_time, end_time, notes }
         : { therapist_id: myId, start_time, end_time, notes };
+
+      // קיצור ברגע האחרון — אם עורכים ביום הפגישה ומקצרים אותה
+      if (editId && cancelSessionData) {
+        const now = new Date();
+        const sessionStart = new Date(cancelSessionData.startTime);
+        const originalEnd = new Date(cancelSessionData.originalEndTime);
+        const newEnd = new Date(end_time);
+        const hoursUntil = (sessionStart - now) / (1000 * 60 * 60);
+        const isLate = hoursUntil < 24 && hoursUntil > -24; // ביום הפגישה
+        const isShorter = newEnd < originalEnd;
+        if (isLate && isShorter && !body._confirmedShorten) {
+          const origH = ((originalEnd - sessionStart) / 3600000).toFixed(1);
+          const newH  = ((newEnd - sessionStart) / 3600000).toFixed(1);
+          if (!confirm(`⚠️ אתה מקצר פגישה ביום שלה (מ-${origH} ל-${newH} שעות).\n\nהחיוב יהיה על הזמן המקורי (${origH} שעות).\nהאם להמשיך?`)) return;
+        }
+      }
 
       const res = await fetch(url, {
         method,
