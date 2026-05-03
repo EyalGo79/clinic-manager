@@ -43,6 +43,9 @@ router.get('/', isAdminOrTherapist, async (req, res) => {
   try {
     const { from, to, therapist_id } = req.query;
     console.log('[sessions GET] role:', req.user.role, 'id:', req.user.id, 'from:', from, 'to:', to);
+    // FullCalendar שולח תאריכים עם +03:00 שנהפך לרווח ב-URL — נמיר ל-UTC
+    const fromUTC = from ? new Date(from).toISOString() : null;
+    const toUTC   = to   ? new Date(to).toISOString()   : null;
     let params = [];
     let conditions = [];
 
@@ -51,12 +54,12 @@ router.get('/', isAdminOrTherapist, async (req, res) => {
       params.push(therapist_id);
       conditions.push(`s.therapist_id = $${params.length}`);
     }
-    if (from) {
-      params.push(from);
+    if (fromUTC) {
+      params.push(fromUTC);
       conditions.push(`s.start_time >= $${params.length}`);
     }
-    if (to) {
-      params.push(to);
+    if (toUTC) {
+      params.push(toUTC);
       conditions.push(`s.end_time <= $${params.length}`);
     }
 
