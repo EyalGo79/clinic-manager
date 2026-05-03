@@ -95,6 +95,7 @@ router.get('/', isAdminOrTherapist, async (req, res) => {
 
     res.json(result.rows);
   } catch (err) {
+    console.error('[sessions GET] error:', err.message, err.stack);
     res.status(500).json({ error: err.message });
   }
 });
