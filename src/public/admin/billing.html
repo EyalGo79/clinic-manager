@@ -163,7 +163,7 @@
     <!-- טבלת פגישות -->
     <div class="table-wrap">
       <table>
-        <thead><tr><th>תאריך</th><th>שעות</th><th>סטטוס</th><th>ססיה</th></tr></thead>
+        <thead><tr><th>תאריך</th><th>שעות</th><th>סטטוס</th><th>ססיה</th><th></th></tr></thead>
         <tbody id="detailTable"></tbody>
       </table>
     </div>
@@ -322,7 +322,7 @@
   function renderDetailTable(data) {
     const tbody = document.getElementById('detailTable');
     if (!data.sessions.length) {
-      tbody.innerHTML = '<tr><td colspan="4" style="color:#718096;text-align:center;">אין פגישות</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5" style="color:#718096;text-align:center;">אין פגישות</td></tr>';
       return;
     }
     tbody.innerHTML = data.sessions.map(s => {
@@ -337,13 +337,36 @@
         : s.inSlot === true  ? '<span class="slot-chip">קבועה</span>'
         : s.inSlot === 'partial' ? '<span class="slot-chip" style="background:#fefcbf;color:#744210;">חלקית</span>'
         : '<span class="rate-chip">נוספת</span>';
+      const waiveBtn = s.status === 'cancelled_charged'
+        ? `<button class="btn btn-ghost btn-sm" onclick="waiveCharge(${s.id})">בטל חיוב</button>`
+        : '';
       return `<tr>
         <td>${dateStr} ${timeStr}</td>
         <td>${hours} ש'</td>
         <td>${badge}</td>
         <td>${slotBadge}</td>
+        <td>${waiveBtn}</td>
       </tr>`;
     }).join('');
+  }
+
+  async function waiveCharge(sessionId) {
+    if (!confirm('לבטל את החיוב על פגישה זו?')) return;
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}/waive`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!res.ok) { alert('שגיאה בביטול החיוב'); return; }
+      const [billingRes, adjRes] = await Promise.all([
+        fetch(`/api/billing/${detailTherapistId}/${currentYear}/${currentMonth}`),
+        fetch(`/api/billing/${detailTherapistId}/${currentYear}/${currentMonth}/adjustments`),
+      ]);
+      detailBillingData = await billingRes.json();
+      const adjData = await adjRes.json();
+      renderBreakdown(detailBillingData, adjData);
+      renderDetailTable(detailBillingData);
+    } catch (e) { alert('שגיאת רשת'); }
   }
 
   function toggleAdjForm() {

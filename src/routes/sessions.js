@@ -319,4 +319,21 @@ router.post('/:id/cancel', isAdminOrTherapist, async (req, res) => {
   }
 });
 
+// POST /api/sessions/:id/waive — ביטול חיוב על פגישה מבוטלת (מנהל בלבד)
+router.post('/:id/waive', isAdmin, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `UPDATE sessions
+       SET status = 'cancelled', cancellation_waived = true
+       WHERE id = $1 AND status = 'cancelled_charged'
+       RETURNING *`,
+      [req.params.id]
+    );
+    if (!result.rows[0]) return res.status(404).json({ error: 'לא נמצא או לא מחויב' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
