@@ -12,7 +12,10 @@
       "Bash(node --check src/routes/calendar.js)",
       "Bash(node --check index.js)",
       "Bash(node --check src/routes/billing.js)",
-      "Bash(node --check src/routes/sessions.js)"
+      "Bash(node --check src/routes/sessions.js)",
+      "Bash(git push *)",
+      "Bash(git add *)",
+      "Bash(git commit *)"
     ]
   }
 }

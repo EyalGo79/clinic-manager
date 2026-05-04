@@ -237,6 +237,11 @@
     }
   }
 
+  function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+  }
+
   // המרת datetime-local string ל-ISO עם offset מקומי
   function localToISO(localStr) {
     const d = new Date(localStr);
@@ -414,7 +419,7 @@
             <div><strong>שעות:</strong> ${start.toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'})} – ${end.toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'})}</div>
             <div><strong>משך:</strong> ${hours} שעות</div>
             <div><strong>סטטוס:</strong> ${statusMap[s.status] || s.status}</div>
-            ${s.notes ? `<div><strong>הערות:</strong> ${s.notes}</div>` : ''}
+            ${s.notes ? `<div><strong>הערות:</strong> ${escapeHtml(s.notes)}</div>` : ''}
           `;
           document.getElementById('detailModal').classList.add('open');
         }

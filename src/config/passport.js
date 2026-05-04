@@ -13,7 +13,9 @@ passport.serializeUser((user, done) => {
 
 passport.deserializeUser(async ({ id, role, access_token, refresh_token }, done) => {
   try {
-    const table = role === 'admin' ? 'admins' : 'therapists';
+    const tableMap = { admin: 'admins', therapist: 'therapists' };
+    const table = tableMap[role];
+    if (!table) return done(null, false);
     const result = await pool.query(`SELECT * FROM ${table} WHERE id = $1`, [id]);
     if (!result.rows[0]) return done(null, false);
     done(null, { ...result.rows[0], role, access_token, refresh_token });
