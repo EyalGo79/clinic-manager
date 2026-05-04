@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>קליניקה — כניסה</title>
+  <title>קליניקת גולן — כניסה</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -70,8 +70,8 @@
 <body>
   <div class="card">
     <div class="logo">🏥</div>
-    <h1>מערכת ניהול קליניקה</h1>
-    <p>כניסה למטפלים ולמנהל הקליניקה</p>
+    <h1>מערכת ניהול קליניקת גולן</h1>
+    <p>כניסה למטפלים ולמנהל קליניקת גולן</p>
     <div class="error" id="errorMsg"></div>
     <a href="/auth/google" class="btn-google">
       <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -82,7 +82,7 @@
       </svg>
       כניסה עם Google
     </a>
-    <div class="separator">כניסה למנהל קליניקה</div>
+    <div class="separator">כניסה למנהל קליניקת גולן</div>
     <a href="/auth/google/admin" class="btn-google admin">
       <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
         <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
@@ -97,7 +97,7 @@
     const params = new URLSearchParams(window.location.search);
     if (params.get('error') === 'not_registered') {
       const el = document.getElementById('errorMsg');
-      el.textContent = 'כתובת האימייל שלך אינה רשומה במערכת. פנה למנהל הקליניקה.';
+      el.textContent = 'כתובת האימייל שלך אינה רשומה במערכת. פנה למנהל קליניקת גולן.';
       el.classList.add('show');
     }
   </script>
