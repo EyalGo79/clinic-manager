@@ -23,7 +23,8 @@
       .fc .fc-toolbar-title { font-size: 14px; }
       .fc .fc-button { padding: 4px 8px; font-size: 12px; }
       .fc .fc-timegrid-slot { height: 28px; }
-      .fc .fc-col-header-cell-cushion { font-size: 12px; }
+      .fc .fc-col-header-cell { font-size: 13px; white-space: normal; line-height: 1.3; }
+      .fc .fc-col-header-cell-cushion { font-size: 13px; white-space: normal; padding: 4px 2px; }
       .fc .fc-timegrid-axis-cushion { font-size: 11px; }
       .fc-event .fc-event-title { font-size: 11px; }
     }
@@ -184,6 +185,13 @@
         start: 'today prev,next',
         center: 'title',
         end: isMobile ? 'timeGridDay,timeGridWeek' : 'dayGridMonth,timeGridWeek,timeGridDay',
+      },
+      views: {
+        timeGridWeek: {
+          dayHeaderFormat: isMobile
+            ? { weekday: 'short', day: 'numeric' }
+            : { weekday: 'short', month: 'numeric', day: 'numeric' },
+        },
       },
       slotMinTime: '06:30:00',
       slotMaxTime: '23:30:00',
