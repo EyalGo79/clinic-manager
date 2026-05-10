@@ -300,6 +300,27 @@ tr:hover td { background: #f7fafc; }
 
   .sidebar-user { display: none; }
 
+  .sidebar-logout-mobile {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 3px;
+    padding: 8px 4px;
+    font-size: 10px;
+    color: #a0aec0;
+    border-top: 3px solid transparent;
+    min-width: 56px;
+    text-align: center;
+    background: none;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .sidebar-logout-mobile:hover { color: #fc8181; border-top-color: #e53e3e; }
+
   .main {
     margin-right: 0;
     padding-bottom: 70px; /* מקום לתפריט תחתון */
