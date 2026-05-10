@@ -15,6 +15,18 @@
     .fc .fc-toolbar-title { font-size: 16px; }
     .filter-bar { display:flex; gap:12px; align-items:center; margin-bottom:20px; flex-wrap:wrap; }
     .filter-bar select, .filter-bar input { padding:8px 12px; border:1.5px solid #e2e8f0; border-radius:7px; font-size:14px; }
+    @media (max-width: 700px) {
+      #calendarWrap { padding: 8px; border-radius: 8px; }
+      .filter-bar { gap: 8px; margin-bottom: 12px; }
+      .filter-bar select { font-size: 13px; padding: 6px 8px; }
+      .fc .fc-toolbar { flex-wrap: wrap; gap: 4px; }
+      .fc .fc-toolbar-title { font-size: 14px; }
+      .fc .fc-button { padding: 4px 8px; font-size: 12px; }
+      .fc .fc-timegrid-slot { height: 28px; }
+      .fc .fc-col-header-cell-cushion { font-size: 12px; }
+      .fc .fc-timegrid-axis-cushion { font-size: 11px; }
+      .fc-event .fc-event-title { font-size: 11px; }
+    }
   </style>
 </head>
 <body>
@@ -163,18 +175,19 @@
   }
 
   function initCalendar() {
+    const isMobile = window.innerWidth <= 700;
     calendar = new FullCalendar.Calendar(document.getElementById('calendar'), {
       locale: 'he',
       direction: 'rtl',
-      initialView: 'timeGridWeek',
+      initialView: isMobile ? 'timeGridDay' : 'timeGridWeek',
       headerToolbar: {
         start: 'today prev,next',
         center: 'title',
-        end: 'dayGridMonth,timeGridWeek,timeGridDay',
+        end: isMobile ? 'timeGridDay,timeGridWeek' : 'dayGridMonth,timeGridWeek,timeGridDay',
       },
       slotMinTime: '06:30:00',
       slotMaxTime: '23:30:00',
-      height: 680,
+      height: isMobile ? 500 : 680,
       allDaySlot: false,
       eventClick: (info) => openEditModal(info.event.extendedProps),
       eventDidMount: (info) => {

@@ -10,6 +10,16 @@
   <script src="https://cdn.jsdelivr.net/npm/@fullcalendar/core@6.1.11/locales/he.global.min.js"></script>
   <style>
     #calendarWrap { background:#fff; border-radius:10px; padding:20px; box-shadow:0 1px 4px rgba(0,0,0,.08); }
+    @media (max-width: 700px) {
+      #calendarWrap { padding: 8px; border-radius: 8px; }
+      .fc .fc-toolbar { flex-wrap: wrap; gap: 4px; }
+      .fc .fc-toolbar-title { font-size: 14px; }
+      .fc .fc-button { padding: 4px 8px; font-size: 12px; }
+      .fc .fc-timegrid-slot { height: 28px; }
+      .fc .fc-col-header-cell-cushion { font-size: 12px; }
+      .fc .fc-timegrid-axis-cushion { font-size: 11px; }
+      .fc-event .fc-event-title { font-size: 11px; }
+    }
   </style>
 </head>
 <body>
