@@ -33,10 +33,10 @@ passport.use('google-admin',
       callbackURL: process.env.GOOGLE_CALLBACK_URL_ADMIN,
     },
     async (accessToken, refreshToken, profile, done) => {
-      const email = profile.emails[0].value;
+      const email = profile.emails[0].value.toLowerCase();
       const googleId = profile.id;
       try {
-        const result = await pool.query('SELECT * FROM admins WHERE email = $1', [email]);
+        const result = await pool.query('SELECT * FROM admins WHERE LOWER(email) = $1', [email]);
         if (!result.rows[0]) return done(null, false, { message: 'לא רשום כאדמין' });
         await pool.query(
           'UPDATE admins SET google_id = $1, refresh_token = COALESCE($2, refresh_token) WHERE id = $3',
@@ -59,17 +59,17 @@ passport.use('google-therapist',
       callbackURL: process.env.GOOGLE_CALLBACK_URL,
     },
     async (accessToken, refreshToken, profile, done) => {
-      const email = profile.emails[0].value;
+      const email = profile.emails[0].value.toLowerCase();
       const googleId = profile.id;
       try {
         // בדוק אדמין קודם
-        const adminResult = await pool.query('SELECT * FROM admins WHERE email = $1', [email]);
+        const adminResult = await pool.query('SELECT * FROM admins WHERE LOWER(email) = $1', [email]);
         if (adminResult.rows[0]) {
           await pool.query('UPDATE admins SET google_id = $1 WHERE id = $2', [googleId, adminResult.rows[0].id]);
           return done(null, { ...adminResult.rows[0], role: 'admin', access_token: accessToken, refresh_token: null });
         }
         // מטפל
-        const therapistResult = await pool.query('SELECT * FROM therapists WHERE email = $1', [email]);
+        const therapistResult = await pool.query('SELECT * FROM therapists WHERE LOWER(email) = $1', [email]);
         if (therapistResult.rows[0]) {
           if (!therapistResult.rows[0].google_id) {
             await pool.query('UPDATE therapists SET google_id = $1 WHERE id = $2', [googleId, therapistResult.rows[0].id]);
