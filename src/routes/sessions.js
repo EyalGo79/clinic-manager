@@ -15,7 +15,7 @@ async function getConflict(therapistId, startTime, endTime, excludeId = null) {
 
   const sameTherapist = await pool.query(`
     SELECT id, start_time, end_time FROM sessions
-    WHERE therapist_id = $1 AND status != 'cancelled' AND id != $2
+    WHERE therapist_id = $1 AND status = 'confirmed' AND id != $2
       AND start_time < $3 AND end_time > $4
     LIMIT 1
   `, [therapistId, excludeId || 0, endTime, startTime]);
@@ -25,7 +25,7 @@ async function getConflict(therapistId, startTime, endTime, excludeId = null) {
     SELECT s.id, s.start_time, s.end_time, t.name AS therapist_name
     FROM sessions s
     LEFT JOIN therapists t ON s.therapist_id = t.id
-    WHERE s.therapist_id != $1 AND s.status != 'cancelled' AND s.id != $2
+    WHERE s.therapist_id != $1 AND s.status = 'confirmed' AND s.id != $2
       AND s.start_time < $3 AND s.end_time > $4
     LIMIT 1
   `, [therapistId, excludeId || 0, bufferedEnd, bufferedStart]);
