@@ -108,7 +108,7 @@
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
       <div class="form-group">
         <label>שעת התחלה</label>
-        <input type="time" class="form-control" id="sStart" oninput="autoFillEndTime()" onchange="autoFillEndTime()">
+        <input type="time" class="form-control" id="sStart">
       </div>
       <div class="form-group">
         <label>שעת סיום</label>
@@ -143,6 +143,10 @@
 <script>
   let myId = null;
   let calendar = null;
+
+  document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('sStart').addEventListener('change', autoFillEndTime);
+  });
 
   fetch('/auth/me').then(r => r.json()).then(u => {
     document.getElementById('userName').textContent = u.name || u.email;
