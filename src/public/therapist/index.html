@@ -408,7 +408,7 @@
           `/api/sessions?from=${info.startStr}&to=${info.endStr}`
         );
         const sessions = await res.json();
-        success(sessions.map(s => ({
+        success(sessions.filter(s => s._other || s.status !== 'cancelled').map(s => ({
           id: s.id,
           title: s._other ? 'תפוס' :
                  s.status === 'cancelled_charged' ? '⚠️ בוטל (מחויב)' :
