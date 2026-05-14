@@ -108,7 +108,7 @@
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
       <div class="form-group">
         <label>שעת התחלה</label>
-        <input type="time" class="form-control" id="sStart" onchange="autoFillEndTime()">
+        <input type="time" class="form-control" id="sStart">
       </div>
       <div class="form-group">
         <label>שעת סיום</label>
@@ -188,17 +188,6 @@
     document.getElementById('sessionModalAlert').className = 'alert';
     cancelSessionData = { id: s.id, startTime: s.start_time, originalEndTime: s.end_time };
     document.getElementById('sessionModal').classList.add('open');
-  }
-
-  function autoFillEndTime() {
-    const start = document.getElementById('sStart').value;
-    const end = document.getElementById('sEnd').value;
-    if (!start || end) return;
-    const [h, m] = start.split(':').map(Number);
-    const total = h * 60 + m + 60;
-    const eh = String(Math.floor(total / 60) % 24).padStart(2, '0');
-    const em = String(total % 60).padStart(2, '0');
-    document.getElementById('sEnd').value = `${eh}:${em}`;
   }
 
   function toggleRecurring() {
