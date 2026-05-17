@@ -66,6 +66,12 @@
         </div>
       </div>
 
+      <!-- פגישות השבוע -->
+      <div class="card" style="margin-bottom:24px;">
+        <h3 style="font-size:15px;margin-bottom:14px;">פגישות השבוע</h3>
+        <div id="weekSessions"><div style="color:#718096;font-size:14px;">טוען...</div></div>
+      </div>
+
       <div id="calendarWrap">
         <div id="calendar"></div>
       </div>
@@ -148,8 +154,56 @@
     document.getElementById('userName').textContent = u.name || u.email;
     myId = u.id;
     loadStats();
+    loadWeekSessions();
     loadCalendar();
   });
+
+  async function loadWeekSessions() {
+    const now = new Date();
+    const day = now.getDay(); // 0=Sun
+    const weekStart = new Date(now); weekStart.setDate(now.getDate() - day); weekStart.setHours(0,0,0,0);
+    const weekEnd   = new Date(weekStart); weekEnd.setDate(weekStart.getDate() + 7);
+
+    try {
+      const res = await fetch(`/api/sessions?from=${weekStart.toISOString()}&to=${weekEnd.toISOString()}`);
+      const sessions = await res.json();
+      const mine = sessions.filter(s => s.therapist_id === myId && s.status === 'confirmed');
+      const el = document.getElementById('weekSessions');
+
+      if (!mine.length) {
+        el.innerHTML = '<div style="color:#718096;font-size:14px;">אין פגישות השבוע</div>';
+        return;
+      }
+
+      el.innerHTML = mine.map(s => {
+        const start = new Date(s.start_time);
+        const end   = new Date(s.end_time);
+        const dayStr  = start.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'numeric' });
+        const timeStr = start.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }) +
+                        ' – ' + end.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
+        const hours   = ((end - start) / 3600000).toFixed(1);
+        const isPast  = end < now;
+        return `
+          <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #e2e8f0;flex-wrap:wrap;">
+            <div style="flex:1;min-width:160px;">
+              <div style="font-weight:600;font-size:14px;${isPast ? 'color:#a0aec0;' : ''}">${dayStr}</div>
+              <div style="font-size:13px;color:#718096;">${timeStr} · ${hours} ש'</div>
+            </div>
+            <div style="display:flex;gap:8px;">
+              <button class="btn btn-ghost btn-sm" onclick='openEditSession(${JSON.stringify(s)})'>עריכה</button>
+              <button class="btn btn-danger btn-sm" onclick='requestCancelById(${JSON.stringify(s)})'>ביטול</button>
+            </div>
+          </div>`;
+      }).join('');
+    } catch (e) {
+      document.getElementById('weekSessions').innerHTML = '<div style="color:#e53e3e;font-size:14px;">שגיאה בטעינה</div>';
+    }
+  }
+
+  function requestCancelById(s) {
+    cancelSessionData = { id: s.id, startTime: s.start_time, originalEndTime: s.end_time };
+    requestCancel();
+  }
 
   function openNewSession() {
     document.getElementById('sessionModalTitle').textContent = 'פגישה חדשה';
@@ -244,6 +298,7 @@
       closeSessionModal();
       calendar.refetchEvents();
       loadStats();
+      loadWeekSessions();
     } catch (e) {
       showSessionAlert('שגיאת רשת', 'error');
     }
@@ -347,6 +402,7 @@
       closeSessionModal();
       calendar.refetchEvents();
       loadStats();
+      loadWeekSessions();
     } catch (e) {
       showSessionAlert('שגיאת רשת', 'error');
     }
