@@ -135,10 +135,11 @@
       const res = await fetch(`/api/sessions?from=${from}&to=${to}`);
       const sessions = await res.json();
       const el = document.getElementById('todaySessions');
+      const visible = sessions.filter(s => s.status === 'confirmed' || s.status === 'cancelled_charged');
 
-      document.getElementById('statSessions').textContent = sessions.length;
+      document.getElementById('statSessions').textContent = sessions.filter(s => s.status === 'confirmed').length;
 
-      if (!sessions.length) {
+      if (!visible.length) {
         el.innerHTML = '<div style="color:#718096;font-size:14px;padding:8px 0;">אין פגישות היום</div>';
         return;
       }
@@ -150,7 +151,7 @@
               <th>שעה</th><th>מטפל</th><th>משך</th><th>סטטוס</th>
             </tr></thead>
             <tbody>
-              ${sessions.map(s => {
+              ${visible.map(s => {
                 const start = new Date(s.start_time);
                 const end = new Date(s.end_time);
                 const hours = ((end - start) / 3600000).toFixed(1);
@@ -183,10 +184,13 @@
     btn.disabled = true;
     btn.textContent = '⏳ מסנכרן...';
     try {
-      const res = await fetch('/api/calendar/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-      const data = await res.json();
+      const [syncRes, pushRes] = await Promise.all([
+        fetch('/api/calendar/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then(r => r.json()),
+        fetch('/api/calendar/push', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then(r => r.json()),
+      ]);
+      const data = syncRes;
       if (data.success) {
-        status.textContent = `סונכרן בהצלחה — יובאו ${data.imported}, עודכנו ${data.updated}, דולגו ${data.skipped}`;
+        status.textContent = `סונכרן בהצלחה — יובאו ${data.imported}, נדחפו ${pushRes.pushed ?? 0}`;
         status.style.color = '#276749';
         loadTodaySessions();
       } else {
