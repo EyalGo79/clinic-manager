@@ -336,13 +336,12 @@
   (async () => {
     await loadTherapists();
     initCalendar();
-    // סנכרון גוגל קאלנדר ברקע — לא מחכים לתוצאה
-    fetch('/api/calendar/sync', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
-    }).then(r => r.json()).then(data => {
-      if (data.imported > 0) loadEvents();
+    // סנכרון גוגל קאלנדר ברקע — משיכה מגוגל + דחיפת פגישות חדשות
+    Promise.all([
+      fetch('/api/calendar/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }).then(r => r.json()),
+      fetch('/api/calendar/push', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }).then(r => r.json()),
+    ]).then(([syncData, pushData]) => {
+      if ((syncData.imported > 0) || (pushData.pushed > 0)) loadEvents();
     }).catch(() => {});
     loadEvents();
   })();

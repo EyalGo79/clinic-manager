@@ -174,6 +174,49 @@ router.post('/event', isAdmin, async (req, res) => {
   }
 });
 
+// דחיפת פגישות ללא google_event_id לגוגל קאלנדר
+router.post('/push', isAdmin, async (req, res) => {
+  try {
+    const oauth2Client = getOAuth2Client();
+    oauth2Client.setCredentials({
+      access_token: req.user.access_token,
+      refresh_token: req.user.refresh_token,
+    });
+    const cal = google.calendar({ version: 'v3', auth: oauth2Client });
+    const calendarId = await getClinicCalendarId(cal);
+    if (!calendarId) return res.status(404).json({ error: 'לא נמצא קאלנדר בשם "קליניקה"' });
+
+    const pending = await pool.query(
+      `SELECT s.*, t.name AS therapist_name
+       FROM sessions s
+       LEFT JOIN therapists t ON s.therapist_id = t.id
+       WHERE s.status = 'confirmed' AND s.google_event_id IS NULL`
+    );
+
+    let pushed = 0;
+    for (const session of pending.rows) {
+      try {
+        const created = await cal.events.insert({
+          calendarId,
+          resource: {
+            summary: session.therapist_name || 'פגישה',
+            start: { dateTime: new Date(session.start_time).toISOString(), timeZone: 'Asia/Jerusalem' },
+            end:   { dateTime: new Date(session.end_time).toISOString(),   timeZone: 'Asia/Jerusalem' },
+          },
+        });
+        await pool.query('UPDATE sessions SET google_event_id = $1 WHERE id = $2', [created.data.id, session.id]);
+        pushed++;
+      } catch (e) {
+        console.error('push event error:', session.id, e.message);
+      }
+    }
+
+    res.json({ success: true, pushed });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // פונקציה פנימית — כתוב/עדכן פגישה בגוגל קאלנדר (משמשת את sessions route)
 async function upsertGoogleEvent(session) {
   try {
