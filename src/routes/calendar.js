@@ -8,7 +8,7 @@ function getOAuth2Client() {
   return new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET,
-    process.env.GOOGLE_CALLBACK_URL
+    process.env.GOOGLE_CALLBACK_URL_ADMIN
   );
 }
 
@@ -29,22 +29,6 @@ async function getClinicCalendarId(calendar) {
   return found?.id || null;
 }
 function buildTherapistMap(therapists) {
-  const map = new Map();
-  for (const t of therapists) {
-    if (t.calendar_name) map.set(t.calendar_name.trim().toLowerCase(), t.id);
-    // גיבוי: שם פרטי ושם מלא
-    map.set(t.name.trim().toLowerCase(), t.id);
-    const firstName = t.name.split(' ')[0].trim().toLowerCase();
-    if (firstName) map.set(firstName, t.id);
-  }
-  return map;
-}
-
-async function getClinicCalendarId(calendar) {
-  const calendarList = await calendar.calendarList.list();
-  const found = calendarList.data.items.find(c => c.summary === 'קליניקה');
-  return found?.id || null;
-}
 
 // סינק: שליפת אירועים מגוגל קאלנדר ושמירתם ב-DB
 router.post('/sync', isAdmin, async (req, res) => {
