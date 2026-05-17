@@ -13,8 +13,14 @@ const billingRoutes = require('./src/routes/billing');
 const calendarRoutes = require('./src/routes/calendar').router;
 const settingsRoutes = require('./src/routes/settings');
 
+const pool = require('./src/config/db');
+
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// migration: add is_calendar_primary if missing
+pool.query('ALTER TABLE admins ADD COLUMN IF NOT EXISTS is_calendar_primary BOOLEAN NOT NULL DEFAULT false')
+  .catch(e => console.error('migration error:', e.message));
 
 app.set('trust proxy', 1);
 

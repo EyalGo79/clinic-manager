@@ -43,9 +43,20 @@ router.put('/rate-tiers', isAdmin, async (req, res) => {
 router.get('/admins', isAdmin, async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT id, email, created_at FROM admins ORDER BY created_at'
+      'SELECT id, email, is_calendar_primary, refresh_token IS NOT NULL AS has_token, created_at FROM admins ORDER BY created_at'
     );
     res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/settings/admins/:id/calendar-primary — הגדר אדמין ראשי לגוגל
+router.put('/admins/:id/calendar-primary', isAdmin, async (req, res) => {
+  try {
+    await pool.query('UPDATE admins SET is_calendar_primary = false');
+    await pool.query('UPDATE admins SET is_calendar_primary = true WHERE id = $1', [req.params.id]);
+    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

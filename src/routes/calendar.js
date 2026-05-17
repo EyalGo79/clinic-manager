@@ -12,10 +12,10 @@ function getOAuth2Client() {
   );
 }
 
-// טוען refresh_token מה-DB ומחזיר OAuth client מוכן
+// טוען refresh_token מה-DB ומחזיר OAuth client מוכן — מעדיף אדמין ראשי
 async function getStoredOAuthClient() {
   const result = await pool.query(
-    'SELECT refresh_token FROM admins WHERE refresh_token IS NOT NULL LIMIT 1'
+    'SELECT refresh_token FROM admins WHERE refresh_token IS NOT NULL ORDER BY is_calendar_primary DESC LIMIT 1'
   );
   if (!result.rows[0]?.refresh_token) return null;
   const client = getOAuth2Client();

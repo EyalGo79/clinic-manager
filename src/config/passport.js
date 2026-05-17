@@ -50,6 +50,32 @@ passport.use('google-admin',
   )
 );
 
+// Strategy לרענון טוקן — callback שונה, תמיד שומר refresh_token חדש
+passport.use('google-admin-refresh',
+  new GoogleStrategy(
+    {
+      clientID: process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      callbackURL: process.env.GOOGLE_CALLBACK_URL_ADMIN_REFRESH,
+    },
+    async (accessToken, refreshToken, profile, done) => {
+      const email = profile.emails[0].value.toLowerCase();
+      const googleId = profile.id;
+      try {
+        const result = await pool.query('SELECT * FROM admins WHERE LOWER(email) = $1', [email]);
+        if (!result.rows[0]) return done(null, false, { message: 'לא רשום כאדמין' });
+        await pool.query(
+          'UPDATE admins SET google_id = $1, refresh_token = $2 WHERE id = $3',
+          [googleId, refreshToken, result.rows[0].id]
+        );
+        return done(null, { ...result.rows[0], role: 'admin', access_token: accessToken, refresh_token: refreshToken });
+      } catch (err) {
+        return done(err);
+      }
+    }
+  )
+);
+
 // Strategy למטפלים — ללא קאלנדר
 passport.use('google-therapist',
   new GoogleStrategy(

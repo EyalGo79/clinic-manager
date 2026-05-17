@@ -66,6 +66,11 @@
     currentUserId = u.id;
   });
 
+  // הודעה לאחר רענון טוקן
+  const params = new URLSearchParams(location.search);
+  if (params.get('refreshed')) showAlert('alertBox', 'הטוקן עודכן והאדמין הוגדר כראשי', 'success');
+  if (params.get('error')) showAlert('alertBox', 'שגיאה בחיבור לגוגל', 'error');
+
   let tiersData = [];
 
   async function loadTiers() {
@@ -157,12 +162,28 @@
       return;
     }
     container.innerHTML = admins.map(a => `
-      <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #e2e8f0;font-size:13px;">
-        <span style="flex:1;">${a.email}</span>
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #e2e8f0;font-size:13px;flex-wrap:wrap;">
+        <span style="flex:1;min-width:140px;">${a.email}</span>
+        ${a.is_calendar_primary
+          ? '<span style="color:#276749;font-size:12px;font-weight:600;">★ ראשי</span>'
+          : `<button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:12px;" onclick="setPrimary(${a.id})">הגדר ראשי</button>`}
+        <a href="/auth/google/admin/refresh" class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:12px;text-decoration:none;"
+          title="${a.has_token ? 'רענן טוקן' : 'חבר חשבון גוגל'}">${a.has_token ? '🔄 רענן טוקן' : '🔗 חבר גוגל'}</a>
         <button class="btn btn-danger btn-sm" style="padding:2px 8px;"
           onclick="deleteAdmin(${a.id})" ${a.id === currentUserId ? 'disabled title="לא ניתן למחוק את עצמך"' : ''}>✕</button>
       </div>
     `).join('');
+  }
+
+  async function setPrimary(id) {
+    try {
+      const res = await fetch(`/api/settings/admins/${id}/calendar-primary`, { method: 'PUT' });
+      if (!res.ok) { showAlert('alertBox', 'שגיאה', 'error'); return; }
+      showAlert('alertBox', 'האדמין הוגדר כראשי לגוגל קאלנדר', 'success');
+      loadAdmins();
+    } catch (e) {
+      showAlert('alertBox', 'שגיאת רשת', 'error');
+    }
   }
 
   async function addAdmin() {
