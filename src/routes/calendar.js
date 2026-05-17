@@ -29,6 +29,15 @@ async function getClinicCalendarId(calendar) {
   return found?.id || null;
 }
 function buildTherapistMap(therapists) {
+  const map = new Map();
+  for (const t of therapists) {
+    if (t.calendar_name) map.set(t.calendar_name.trim().toLowerCase(), t.id);
+    map.set(t.name.trim().toLowerCase(), t.id);
+    const firstName = t.name.split(' ')[0].trim().toLowerCase();
+    if (firstName) map.set(firstName, t.id);
+  }
+  return map;
+}
 
 // סינק: שליפת אירועים מגוגל קאלנדר ושמירתם ב-DB
 router.post('/sync', isAdmin, async (req, res) => {
