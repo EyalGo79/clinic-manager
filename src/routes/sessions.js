@@ -77,7 +77,9 @@ router.get('/', isAdminOrTherapist, async (req, res) => {
     if (req.user.role === 'therapist') {
       // פגישות של מטפלים אחרים — מסיר פרטים
       const myId = req.user.id;
-      const rows = result.rows.map(s => {
+      const rows = result.rows
+        .filter(s => s.therapist_id === myId || s.status === 'confirmed')
+        .map(s => {
         if (s.therapist_id === myId) return s;
         return {
           id: s.id,
