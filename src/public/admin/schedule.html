@@ -162,7 +162,7 @@
     const res = await fetch(url);
     const sessions = await res.json();
 
-    const events = sessions.map(s => ({
+    const events = sessions.filter(s => s.status !== 'cancelled').map(s => ({
       id: s.id,
       title: s.therapist_name || 'לא שויך',
       start: s.start_time,
