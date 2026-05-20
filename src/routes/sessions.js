@@ -285,8 +285,10 @@ router.post('/:id/cancel', isAdminOrTherapist, async (req, res) => {
     const now = new Date();
     const sessionStart = new Date(session.start_time);
     const hoursUntil = (sessionStart - now) / (1000 * 60 * 60);
+    const minutesSinceBooking = (now - new Date(session.created_at)) / (1000 * 60);
 
-    const isLateCancel = hoursUntil < LATE_CANCEL_HOURS && hoursUntil > 0;
+    // לא מחויב אם בוטל תוך שעה מרגע הזימון (גם אם פחות מ-24 שעות לפני)
+    const isLateCancel = hoursUntil < LATE_CANCEL_HOURS && hoursUntil > 0 && minutesSinceBooking > 60;
     let newStatus = 'cancelled';
 
     // ביטול מחויב — פחות מ-24 שעות, ורק מנהל יכול לפטור
