@@ -41,7 +41,7 @@
         <div class="table-wrap">
           <table>
             <thead><tr>
-              <th>שם</th><th>אימייל</th><th>טלפון</th><th>סוג</th><th>מחיר ססיה</th><th>סטטוס</th><th>פעולות</th>
+              <th>שם</th><th>אימייל</th><th>טלפון</th><th>סוג</th><th>מחיר ססיה קבועה</th><th>סטטוס</th><th>פעולות</th>
             </tr></thead>
             <tbody id="therapistsTable">
               <tr><td colspan="7" class="loading">טוען...</td></tr>
@@ -172,7 +172,7 @@
         <td>${t.email}</td>
         <td>${t.phone || '—'}</td>
         <td>${t.type === 'fixed' ? '<span class="badge badge-blue">קבוע</span>' : '<span class="badge badge-gray">גמיש</span>'}</td>
-        <td>${t.slot_rate ? '₪' + parseFloat(t.slot_rate).toFixed(0) + '/חודש' : '—'}</td>
+        <td>${t.type === 'fixed' && t.slot_rate ? '₪' + parseFloat(t.slot_rate).toFixed(0) + '/ש׳' : t.type === 'fixed' ? 'לפי מדרגות' : '—'}</td>
         <td>${t.active ? '<span class="badge badge-green">פעיל</span>' : '<span class="badge badge-red">לא פעיל</span>'}</td>
         <td>
           <button class="btn btn-ghost btn-sm" onclick="editTherapist(${t.id})">✏️ עריכה</button>
