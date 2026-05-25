@@ -91,6 +91,7 @@ CREATE TABLE IF NOT EXISTS rate_tiers (
 
 -- עמודות נוספות על therapists
 ALTER TABLE therapists ADD COLUMN IF NOT EXISTS monthly_discount DECIMAL(8,2);
+ALTER TABLE therapists ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT false;
 
 -- אינדקסים
 CREATE INDEX IF NOT EXISTS idx_sessions_therapist ON sessions(therapist_id);

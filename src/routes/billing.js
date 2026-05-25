@@ -217,7 +217,7 @@ router.post('/lock/:year/:month', isAdmin, async (req, res) => {
   const { year, month } = req.params;
   try {
     const [therapistsRes, tiers] = await Promise.all([
-      pool.query('SELECT id, slot_rate FROM therapists WHERE active = true'),
+      pool.query('SELECT id, slot_rate FROM therapists WHERE active = true AND is_admin = false'),
       fetchTiers(),
     ]);
     const results = await Promise.all(therapistsRes.rows.map(async (t) => {
@@ -264,7 +264,7 @@ router.get('/summary/:year/:month', isAdmin, async (req, res) => {
   const { year, month } = req.params;
   try {
     const [therapistsResult, tiers] = await Promise.all([
-      pool.query('SELECT id, name, email, slot_rate, monthly_discount FROM therapists WHERE active = true ORDER BY name'),
+      pool.query('SELECT id, name, email, slot_rate, monthly_discount FROM therapists WHERE active = true AND is_admin = false ORDER BY name'),
       fetchTiers(),
     ]);
     const therapists = therapistsResult;

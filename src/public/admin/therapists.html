@@ -41,10 +41,10 @@
         <div class="table-wrap">
           <table>
             <thead><tr>
-              <th>שם</th><th>אימייל</th><th>טלפון</th><th>סוג</th><th>מחיר ססיה קבועה</th><th>סטטוס</th><th>פעולות</th>
+              <th>שם</th><th>אימייל</th><th>טלפון</th><th>סוג</th><th>מחיר ססיה קבועה</th><th>אדמין</th><th>סטטוס</th><th>פעולות</th>
             </tr></thead>
             <tbody id="therapistsTable">
-              <tr><td colspan="7" class="loading">טוען...</td></tr>
+              <tr><td colspan="8" class="loading">טוען...</td></tr>
             </tbody>
           </table>
         </div>
@@ -97,6 +97,11 @@
     <div id="fActiveGroup" class="form-group" style="display:none;">
       <label>
         <input type="checkbox" id="fActive"> פעיל
+      </label>
+    </div>
+    <div class="form-group">
+      <label>
+        <input type="checkbox" id="fIsAdmin"> אדמין (לא יחויב)
       </label>
     </div>
 
@@ -163,7 +168,7 @@
   function renderTable() {
     const tbody = document.getElementById('therapistsTable');
     if (!therapists.length) {
-      tbody.innerHTML = '<tr><td colspan="7" style="color:#718096;text-align:center;padding:24px;">אין מטפלים רשומים</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" style="color:#718096;text-align:center;padding:24px;">אין מטפלים רשומים</td></tr>';
       return;
     }
     tbody.innerHTML = therapists.map(t => `
@@ -173,6 +178,7 @@
         <td>${t.phone || '—'}</td>
         <td>${t.type === 'fixed' ? '<span class="badge badge-blue">קבוע</span>' : '<span class="badge badge-gray">גמיש</span>'}</td>
         <td>${t.type === 'fixed' && t.slot_rate ? '₪' + parseFloat(t.slot_rate).toFixed(0) + '/ש׳' : t.type === 'fixed' ? 'לפי מדרגות' : '—'}</td>
+        <td>${t.is_admin ? '<span class="badge badge-blue">כן</span>' : '—'}</td>
         <td>${t.active ? '<span class="badge badge-green">פעיל</span>' : '<span class="badge badge-red">לא פעיל</span>'}</td>
         <td>
           <button class="btn btn-ghost btn-sm" onclick="editTherapist(${t.id})">✏️ עריכה</button>
@@ -194,6 +200,7 @@
     document.getElementById('fSlotRate').value = t && t.slot_rate ? parseFloat(t.slot_rate) : '';
     document.getElementById('fMonthlyDiscount').value = t && t.monthly_discount ? parseFloat(t.monthly_discount) : '';
     document.getElementById('fActive').checked = t ? t.active : true;
+    document.getElementById('fIsAdmin').checked = t ? !!t.is_admin : false;
     document.getElementById('fActiveGroup').style.display = t ? 'block' : 'none';
     document.getElementById('slotsSection').style.display = t ? 'block' : 'none';
     if (t) loadSlots(t.id);
@@ -223,6 +230,7 @@
       slot_rate: slotRateVal !== '' ? parseFloat(slotRateVal) : null,
       monthly_discount: monthlyDiscountVal !== '' ? parseFloat(monthlyDiscountVal) : null,
       active: document.getElementById('fActive').checked,
+      is_admin: document.getElementById('fIsAdmin').checked,
     };
     if (!body.name || !body.email) {
       showAlert('modalAlert', 'שם ואימייל הם שדות חובה', 'error');

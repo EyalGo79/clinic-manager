@@ -7,7 +7,7 @@ const { isAdmin } = require('../middleware/auth');
 router.get('/', isAdmin, async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT id, name, email, phone, type, active, calendar_name, slot_rate, monthly_discount, created_at FROM therapists ORDER BY name'
+      'SELECT id, name, email, phone, type, active, calendar_name, slot_rate, monthly_discount, is_admin, created_at FROM therapists ORDER BY name'
     );
     res.json(result.rows);
   } catch (err) {
@@ -19,7 +19,7 @@ router.get('/', isAdmin, async (req, res) => {
 router.get('/:id', isAdmin, async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT id, name, email, phone, type, active, calendar_name, slot_rate, monthly_discount FROM therapists WHERE id = $1',
+      'SELECT id, name, email, phone, type, active, calendar_name, slot_rate, monthly_discount, is_admin FROM therapists WHERE id = $1',
       [req.params.id]
     );
     if (!result.rows[0]) return res.status(404).json({ error: 'לא נמצא' });
@@ -31,16 +31,16 @@ router.get('/:id', isAdmin, async (req, res) => {
 
 // POST /api/therapists — הוספת מטפל
 router.post('/', isAdmin, async (req, res) => {
-  const { name, email, phone, type, calendar_name, slot_rate, monthly_discount } = req.body;
+  const { name, email, phone, type, calendar_name, slot_rate, monthly_discount, is_admin } = req.body;
   if (!name || !email || !type) {
     return res.status(400).json({ error: 'שם, אימייל וסוג הם שדות חובה' });
   }
   try {
     const result = await pool.query(
-      `INSERT INTO therapists (name, email, phone, type, calendar_name, slot_rate, monthly_discount)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING id, name, email, phone, type, calendar_name, slot_rate, monthly_discount, active`,
-      [name, email, phone || null, type, calendar_name || null, slot_rate || null, monthly_discount || null]
+      `INSERT INTO therapists (name, email, phone, type, calendar_name, slot_rate, monthly_discount, is_admin)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING id, name, email, phone, type, calendar_name, slot_rate, monthly_discount, is_admin, active`,
+      [name, email, phone || null, type, calendar_name || null, slot_rate || null, monthly_discount || null, is_admin || false]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -51,7 +51,7 @@ router.post('/', isAdmin, async (req, res) => {
 
 // PUT /api/therapists/:id — עדכון מטפל
 router.put('/:id', isAdmin, async (req, res) => {
-  const { name, email, phone, type, active, calendar_name, slot_rate, monthly_discount } = req.body;
+  const { name, email, phone, type, active, calendar_name, slot_rate, monthly_discount, is_admin } = req.body;
   try {
     const result = await pool.query(
       `UPDATE therapists
@@ -62,10 +62,11 @@ router.put('/:id', isAdmin, async (req, res) => {
            active = COALESCE($5, active),
            calendar_name = $6,
            slot_rate = $7,
-           monthly_discount = $8
-       WHERE id = $9
-       RETURNING id, name, email, phone, type, calendar_name, slot_rate, monthly_discount, active`,
-      [name, email, phone, type, active, calendar_name || null, slot_rate || null, monthly_discount || null, req.params.id]
+           monthly_discount = $8,
+           is_admin = COALESCE($9, is_admin)
+       WHERE id = $10
+       RETURNING id, name, email, phone, type, calendar_name, slot_rate, monthly_discount, is_admin, active`,
+      [name, email, phone, type, active, calendar_name || null, slot_rate || null, monthly_discount || null, is_admin ?? null, req.params.id]
     );
     if (!result.rows[0]) return res.status(404).json({ error: 'לא נמצא' });
     res.json(result.rows[0]);
