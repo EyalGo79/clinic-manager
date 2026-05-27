@@ -194,25 +194,93 @@
     });
   }
 
+  // מחזיר את שעת סיום ה-slot שהפגישה מתחילה בתוכו, או null אם אין חפיפה חלקית
+  function getSlotEndIfPartial(session, therapistId) {
+    const slots = therapistSlots[therapistId] || [];
+    if (!slots.length) return null;
+    const start = new Date(session.start_time);
+    const end = new Date(session.end_time);
+    const toIsraelMin = d => {
+      const s = d.toLocaleString('en-US', { timeZone: 'Asia/Jerusalem', hour: '2-digit', minute: '2-digit', hour12: false });
+      const [h, m] = s.split(':').map(Number);
+      return h * 60 + m;
+    };
+    const israelDate = new Date(start.toLocaleString('en-US', { timeZone: 'Asia/Jerusalem' }));
+    const dow = israelDate.getDay();
+    const startMin = toIsraelMin(start);
+    const endMin = toIsraelMin(end);
+    for (const sl of slots) {
+      if (parseInt(sl.day_of_week) !== dow) continue;
+      const [sh, sm] = sl.start_time.split(':').map(Number);
+      const [eh, em] = sl.end_time.split(':').map(Number);
+      const slotStart = sh * 60 + sm;
+      const slotEnd = eh * 60 + em;
+      // פגישה מתחילה בתוך ה-slot אבל מסתיימת אחריו
+      if (startMin >= slotStart && startMin < slotEnd && endMin > slotEnd) {
+        // בנה Date עבור שעת סיום ה-slot באותו יום ישראלי
+        const slotEndDate = new Date(start);
+        const offsetMs = start.getTime() - new Date(start.toLocaleString('en-US', { timeZone: 'Asia/Jerusalem' })).getTime();
+        slotEndDate.setHours(0, 0, 0, 0);
+        // צור תאריך ישראלי מדויק: אותו יום, שעת סיום slot
+        const ref = new Date(israelDate);
+        ref.setHours(eh, em, 0, 0);
+        // המר בחזרה ל-UTC על ידי חישוב ה-offset בפועל
+        const israelNow = new Date(start.toLocaleString('en-US', { timeZone: 'Asia/Jerusalem' }));
+        const utcOffset = start.getTime() - israelNow.getTime();
+        const slotEndUTC = new Date(ref.getTime() + utcOffset);
+        return slotEndUTC;
+      }
+    }
+    return null;
+  }
+
   async function loadEvents() {
     const therapistId = document.getElementById('filterTherapist').value;
     const url = `/api/sessions${therapistId ? '?therapist_id=' + therapistId : ''}`;
     const res = await fetch(url);
     const sessions = await res.json();
 
-    const events = sessions.filter(s => s.status !== 'cancelled').map(s => {
+    const events = [];
+    sessions.filter(s => s.status !== 'cancelled').forEach(s => {
       const baseColor = therapistColor(s.therapist_id);
-      const inSlot = isInSlot(s, s.therapist_id);
-      return {
-        id: s.id,
-        title: s.therapist_name || 'לא שויך',
-        start: s.start_time,
-        end: s.end_time,
-        backgroundColor: inSlot ? baseColor : lightenColor(baseColor, 70),
-        borderColor: inSlot ? baseColor : baseColor,
-        textColor: inSlot ? '#fff' : '#2d3748',
-        extendedProps: { ...s, inSlot },
-      };
+      const partialSlotEnd = getSlotEndIfPartial(s, s.therapist_id);
+
+      if (partialSlotEnd) {
+        // חלק ראשון — בתוך הססיה, צבע מלא
+        events.push({
+          id: s.id + '_slot',
+          title: s.therapist_name || 'לא שויך',
+          start: s.start_time,
+          end: partialSlotEnd.toISOString(),
+          backgroundColor: baseColor,
+          borderColor: baseColor,
+          textColor: '#fff',
+          extendedProps: { ...s, inSlot: true, _splitPart: 'slot' },
+        });
+        // חלק שני — מחוץ לססיה, צבע בהיר + border מנוקד
+        events.push({
+          id: s.id + '_extra',
+          title: s.therapist_name || 'לא שויך',
+          start: partialSlotEnd.toISOString(),
+          end: s.end_time,
+          backgroundColor: lightenColor(baseColor, 70),
+          borderColor: baseColor,
+          textColor: '#2d3748',
+          extendedProps: { ...s, inSlot: false, _splitPart: 'extra' },
+        });
+      } else {
+        const inSlot = isInSlot(s, s.therapist_id);
+        events.push({
+          id: s.id,
+          title: s.therapist_name || 'לא שויך',
+          start: s.start_time,
+          end: s.end_time,
+          backgroundColor: inSlot ? baseColor : lightenColor(baseColor, 70),
+          borderColor: baseColor,
+          textColor: inSlot ? '#fff' : '#2d3748',
+          extendedProps: { ...s, inSlot },
+        });
+      }
     });
 
     calendar.removeAllEvents();
@@ -250,6 +318,11 @@
         }
         if (!s.inSlot) {
           info.el.style.border = `2px dashed ${therapistColor(s.therapist_id)}`;
+        }
+        // הסתר את הכותרת בחלק ה-extra כדי שלא תכפיל שם
+        if (s._splitPart === 'extra') {
+          const titleEl = info.el.querySelector('.fc-event-title');
+          if (titleEl) titleEl.style.visibility = 'hidden';
         }
       },
     });
