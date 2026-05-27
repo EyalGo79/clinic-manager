@@ -131,6 +131,7 @@
 <script>
   let calendar;
   let therapists = [];
+  let therapistSlots = {}; // therapist_id -> [{day_of_week, start_time, end_time}]
   let cancelingId = null;
 
   fetch('/auth/me').then(r => r.json()).then(u => {
@@ -147,6 +148,14 @@
       filterSel.add(new Option(t.name, t.id));
       formSel.add(new Option(t.name, t.id));
     });
+    // טען slots לכל מטפל
+    await Promise.all(therapists.map(async t => {
+      try {
+        const r = await fetch(`/api/therapists/${t.id}/slots`);
+        const slots = await r.json();
+        therapistSlots[t.id] = slots.filter(s => s.active);
+      } catch { therapistSlots[t.id] = []; }
+    }));
   }
 
   // צבע לפי מטפל
@@ -156,21 +165,55 @@
     return COLORS[idx % COLORS.length] || '#4299e1';
   }
 
+  function lightenColor(hex, amount = 60) {
+    const num = parseInt(hex.slice(1), 16);
+    const r = Math.min(255, (num >> 16) + amount);
+    const g = Math.min(255, ((num >> 8) & 0xff) + amount);
+    const b = Math.min(255, (num & 0xff) + amount);
+    return '#' + [r, g, b].map(x => x.toString(16).padStart(2, '0')).join('');
+  }
+
+  function isInSlot(session, therapistId) {
+    const slots = therapistSlots[therapistId] || [];
+    if (!slots.length) return false;
+    const start = new Date(session.start_time);
+    const end = new Date(session.end_time);
+    const toIsraelMin = d => {
+      const s = d.toLocaleString('en-US', { timeZone: 'Asia/Jerusalem', hour: '2-digit', minute: '2-digit', hour12: false });
+      const [h, m] = s.split(':').map(Number);
+      return h * 60 + m;
+    };
+    const dow = new Date(start.toLocaleString('en-US', { timeZone: 'Asia/Jerusalem' })).getDay();
+    const startMin = toIsraelMin(start);
+    const endMin = toIsraelMin(end);
+    return slots.some(sl => {
+      if (parseInt(sl.day_of_week) !== dow) return false;
+      const [sh, sm] = sl.start_time.split(':').map(Number);
+      const [eh, em] = sl.end_time.split(':').map(Number);
+      return startMin >= sh * 60 + sm && endMin <= eh * 60 + em;
+    });
+  }
+
   async function loadEvents() {
     const therapistId = document.getElementById('filterTherapist').value;
     const url = `/api/sessions${therapistId ? '?therapist_id=' + therapistId : ''}`;
     const res = await fetch(url);
     const sessions = await res.json();
 
-    const events = sessions.filter(s => s.status !== 'cancelled').map(s => ({
-      id: s.id,
-      title: s.therapist_name || 'לא שויך',
-      start: s.start_time,
-      end: s.end_time,
-      backgroundColor: s.status === 'cancelled' || s.status === 'cancelled_charged'
-        ? '#a0aec0' : therapistColor(s.therapist_id),
-      extendedProps: s,
-    }));
+    const events = sessions.filter(s => s.status !== 'cancelled').map(s => {
+      const baseColor = therapistColor(s.therapist_id);
+      const inSlot = isInSlot(s, s.therapist_id);
+      return {
+        id: s.id,
+        title: s.therapist_name || 'לא שויך',
+        start: s.start_time,
+        end: s.end_time,
+        backgroundColor: inSlot ? baseColor : lightenColor(baseColor, 70),
+        borderColor: inSlot ? baseColor : baseColor,
+        textColor: inSlot ? '#fff' : '#2d3748',
+        extendedProps: { ...s, inSlot },
+      };
+    });
 
     calendar.removeAllEvents();
     calendar.addEventSource(events);
@@ -204,6 +247,9 @@
         if (s.status === 'cancelled_charged') {
           info.el.style.textDecoration = 'line-through';
           info.el.style.opacity = '0.7';
+        }
+        if (!s.inSlot) {
+          info.el.style.border = `2px dashed ${therapistColor(s.therapist_id)}`;
         }
       },
     });
