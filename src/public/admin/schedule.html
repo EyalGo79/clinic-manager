@@ -160,7 +160,10 @@
   }
 
   // צבע לפי מטפל
-  const COLORS = ['#4299e1','#48bb78','#ed8936','#9f7aea','#f56565','#38b2ac','#ecc94b'];
+  const COLORS = [
+    '#4299e1','#48bb78','#ed8936','#9f7aea','#f56565','#38b2ac','#ecc94b',
+    '#667eea','#fc8181','#68d391','#f6ad55','#76e4f7','#b794f4','#f687b3',
+  ];
   function therapistColor(id) {
     const idx = therapists.findIndex(t => t.id === id);
     return COLORS[idx % COLORS.length] || '#4299e1';
