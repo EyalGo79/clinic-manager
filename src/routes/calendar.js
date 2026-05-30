@@ -88,7 +88,6 @@ router.post('/sync', isAdmin, async (req, res) => {
       const endRaw   = event.end?.dateTime   || (event.end?.date   ? event.end.date   + 'T08:00:00+03:00' : null);
       if (!startRaw || !endRaw) { results.skipped++; continue; }
 
-      // המר ל-UTC ISO string כדי שהכנסה ל-Postgres תהיה חד-משמעית
       const startTime = new Date(startRaw).toISOString();
       const endTime   = new Date(endRaw).toISOString();
 
@@ -99,8 +98,24 @@ router.post('/sync', isAdmin, async (req, res) => {
       rows.push([therapistId, startTime, endTime, event.id, status, event.summary || null]);
     }
 
-    // bulk upsert — query אחד לכולם עם unnest
     if (rows.length > 0) {
+      // שלב 1: חבר אירועי גוגל לפגישות קיימות ב-DB שחסר להן google_event_id —
+      // מחפש לפי therapist_id + start_time + end_time (חלון ±1 דקה למקרה של עיגול שניות)
+      for (const row of rows) {
+        const [therapistId, startTime, endTime, eventId] = row;
+        if (!therapistId) continue;
+        await pool.query(
+          `UPDATE sessions
+           SET google_event_id = $1
+           WHERE google_event_id IS NULL
+             AND therapist_id = $2
+             AND start_time BETWEEN ($3::timestamptz - interval '1 minute') AND ($3::timestamptz + interval '1 minute')
+             AND end_time   BETWEEN ($4::timestamptz - interval '1 minute') AND ($4::timestamptz + interval '1 minute')`,
+          [eventId, therapistId, startTime, endTime]
+        );
+      }
+
+      // שלב 2: bulk upsert — ON CONFLICT על google_event_id (כולל חדשים ושינויי שעה)
       const therapistIds = rows.map(r => r[0]);
       const startTimes   = rows.map(r => r[1]);
       const endTimes     = rows.map(r => r[2]);
@@ -212,6 +227,38 @@ router.post('/push', isAdmin, async (req, res) => {
     }
 
     res.json({ success: true, pushed });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ניקוי כפילויות: פגישות עם אותו therapist_id + start_time + end_time — שמור את זו עם google_event_id, מחק השאר
+router.post('/deduplicate', isAdmin, async (req, res) => {
+  try {
+    // מצא קבוצות כפילויות
+    const dupes = await pool.query(`
+      SELECT therapist_id, start_time, end_time, array_agg(id ORDER BY google_event_id NULLS LAST, id) AS ids
+      FROM sessions
+      WHERE status = 'confirmed'
+      GROUP BY therapist_id, start_time, end_time
+      HAVING count(*) > 1
+    `);
+
+    if (dupes.rows.length === 0) {
+      return res.json({ success: true, removed: 0, message: 'לא נמצאו כפילויות' });
+    }
+
+    let removed = 0;
+    for (const group of dupes.rows) {
+      // ids ממוינים: עם google_event_id ראשון — שמור את הראשון, מחק את השאר
+      const [keep, ...toDelete] = group.ids;
+      if (toDelete.length > 0) {
+        await pool.query('DELETE FROM sessions WHERE id = ANY($1)', [toDelete]);
+        removed += toDelete.length;
+      }
+    }
+
+    res.json({ success: true, removed, groups: dupes.rows.length });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

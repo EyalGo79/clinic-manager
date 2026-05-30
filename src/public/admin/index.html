@@ -72,9 +72,14 @@
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
           <h3 style="font-size:16px;">גוגל קאלנדר</h3>
-          <button class="btn btn-primary btn-sm" onclick="syncCalendar()" id="syncBtn">
-            🔄 סנכרן עכשיו
-          </button>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-secondary btn-sm" onclick="deduplicateSessions()" id="dedupeBtn" title="מחק פגישות כפולות מהמסד">
+              🧹 נקה כפילויות
+            </button>
+            <button class="btn btn-primary btn-sm" onclick="syncCalendar()" id="syncBtn">
+              🔄 סנכרן עכשיו
+            </button>
+          </div>
         </div>
         <div id="syncStatus" style="font-size:13px;color:#718096;">לא בוצע סינק עדיין</div>
       </div>
@@ -188,13 +193,14 @@
         fetch('/api/calendar/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then(r => r.json()),
         fetch('/api/calendar/push', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then(r => r.json()),
       ]);
-      const data = syncRes;
-      if (data.success) {
-        status.textContent = `סונכרן בהצלחה — יובאו ${data.imported}, נדחפו ${pushRes.pushed ?? 0}`;
+      if (syncRes.success) {
+        const dedupeRes = await fetch('/api/calendar/deduplicate', { method: 'POST' }).then(r => r.json());
+        const removedMsg = dedupeRes.removed > 0 ? `, נוקו ${dedupeRes.removed} כפילויות` : '';
+        status.textContent = `סונכרן בהצלחה — יובאו ${syncRes.imported}, נדחפו ${pushRes.pushed ?? 0}${removedMsg}`;
         status.style.color = '#276749';
         loadTodaySessions();
       } else {
-        status.textContent = 'שגיאה בסינק: ' + (data.error || 'לא ידוע');
+        status.textContent = 'שגיאה בסינק: ' + (syncRes.error || 'לא ידוע');
         status.style.color = '#e53e3e';
       }
     } catch (e) {
@@ -203,6 +209,31 @@
     }
     btn.disabled = false;
     btn.textContent = '🔄 סנכרן עכשיו';
+  }
+
+  async function deduplicateSessions() {
+    const btn = document.getElementById('dedupeBtn');
+    const status = document.getElementById('syncStatus');
+    btn.disabled = true;
+    btn.textContent = '⏳ בודק...';
+    try {
+      const res = await fetch('/api/calendar/deduplicate', { method: 'POST' }).then(r => r.json());
+      if (res.success) {
+        status.textContent = res.removed > 0
+          ? `נוקו ${res.removed} פגישות כפולות (${res.groups} קבוצות)`
+          : 'לא נמצאו כפילויות';
+        status.style.color = res.removed > 0 ? '#276749' : '#718096';
+        if (res.removed > 0) loadTodaySessions();
+      } else {
+        status.textContent = 'שגיאה: ' + (res.error || 'לא ידוע');
+        status.style.color = '#e53e3e';
+      }
+    } catch (e) {
+      status.textContent = 'שגיאת רשת';
+      status.style.color = '#e53e3e';
+    }
+    btn.disabled = false;
+    btn.textContent = '🧹 נקה כפילויות';
   }
 </script>
 </body>
