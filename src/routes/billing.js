@@ -62,7 +62,8 @@ function isInSlot(session, slots) {
 }
 
 // חישוב חיוב עם ססיות קבועות
-function calculateBilling(sessions, slots, slotRate, tiers) {
+// contractRatio: חלק מהחודש שבו הססיה הייתה פעילה (0–1). 1 = חודש מלא.
+function calculateBilling(sessions, slots, slotRate, tiers, contractRatio = 1) {
   const calcRate = (h) => calculateRateFromTiers(h, tiers);
   const actualHours = sessions.reduce((sum, s) => sum + parseFloat(s.hours), 0);
 
@@ -78,15 +79,19 @@ function calculateBilling(sessions, slots, slotRate, tiers) {
       ratePerHour: rate,
       extraRatePerHour: rate,
       totalAmount: round2(actualHours * rate),
+      contractRatio: 1,
     };
   }
 
   const slotMinutesPerWeek = slots.reduce((sum, s) => {
     return sum + (timeToMinutes(s.end_time) - timeToMinutes(s.start_time));
   }, 0);
-  const fixedSlotHours = round2((slotMinutesPerWeek / 60) * 4);
+  // שעות חודש מלא × יחס ימי הססיה
+  const fullMonthSlotHours = round2((slotMinutesPerWeek / 60) * 4);
+  const fixedSlotHours = round2(fullMonthSlotHours * contractRatio);
 
-  const basePrice = slotRate ? round2(parseFloat(slotRate)) : round2(fixedSlotHours * calcRate(fixedSlotHours));
+  const fullBasePrice = slotRate ? round2(parseFloat(slotRate)) : round2(fullMonthSlotHours * calcRate(fullMonthSlotHours));
+  const basePrice = round2(fullBasePrice * contractRatio);
   const effectiveHourlyRate = fixedSlotHours > 0 ? round2(basePrice / fixedSlotHours) : calcRate(0);
 
   const extraHours = round2(
@@ -113,11 +118,42 @@ function calculateBilling(sessions, slots, slotRate, tiers) {
     ratePerHour: effectiveHourlyRate,
     extraRatePerHour: rateOnTotal,
     totalAmount,
+    contractRatio,
   };
 }
 
 function round2(n) {
   return Math.round(n * 100) / 100;
+}
+
+// מחזיר את החלק היחסי מהחודש שבו הססיה הייתה פעילה (0–1)
+// 0 = אין ססיה בחודש זה כלל, 1 = חודש מלא מכוסה
+async function getContractRatio(therapistId, year, month) {
+  const monthStart = new Date(year, month - 1, 1);
+  const monthEnd   = new Date(year, month, 1); // יום ראשון של החודש הבא (exclusive)
+  const daysInMonth = (monthEnd - monthStart) / 86400000;
+
+  const result = await pool.query(
+    `SELECT start_date, end_date FROM slot_contracts
+     WHERE therapist_id = $1
+       AND start_date < $3
+       AND end_date   > $2
+     ORDER BY start_date
+     LIMIT 1`,
+    [therapistId, monthStart.toISOString().slice(0, 10), monthEnd.toISOString().slice(0, 10)]
+  );
+
+  if (!result.rows.length) return 0;
+
+  const { start_date, end_date } = result.rows[0];
+  const contractStart = new Date(start_date);
+  const contractEnd   = new Date(end_date);
+
+  const overlapStart = contractStart > monthStart ? contractStart : monthStart;
+  const overlapEnd   = contractEnd   < monthEnd   ? contractEnd   : monthEnd;
+  const overlapDays  = Math.max(0, (overlapEnd - overlapStart) / 86400000);
+
+  return round2(overlapDays / daysInMonth);
 }
 
 // האם החודש כבר עבר (לפני החודש הנוכחי)
@@ -175,7 +211,8 @@ async function createSnapshot(therapistId, year, month) {
   ]);
 
   const { slot_rate } = therapistRes.rows[0] || {};
-  const billing = calculateBilling(sessionsRes.rows, slotsRes.rows, slot_rate, tiers);
+  const contractRatio = await getContractRatio(therapistId, year, month);
+  const billing = calculateBilling(sessionsRes.rows, slotsRes.rows, slot_rate, tiers, contractRatio);
 
   const adjs = adjRes.rows;
   const creditHours = adjs.filter(a => a.type === 'credit_hours').reduce((s, a) => s + parseFloat(a.value), 0);
@@ -235,7 +272,8 @@ router.post('/lock/:year/:month', isAdmin, async (req, res) => {
         ),
         pool.query('SELECT day_of_week, start_time, end_time FROM therapist_slots WHERE therapist_id = $1 AND active = true', [t.id]),
       ]);
-      const billing = calculateBilling(sessionsRes.rows, slotsRes.rows, t.slot_rate, tiers);
+      const contractRatio = await getContractRatio(t.id, year, month);
+      const billing = calculateBilling(sessionsRes.rows, slotsRes.rows, t.slot_rate, tiers, contractRatio);
       await pool.query(
         `INSERT INTO invoices
            (therapist_id, year, month, total_hours, total_amount, rate_per_hour,
@@ -293,7 +331,8 @@ router.get('/summary/:year/:month', isAdmin, async (req, res) => {
               ),
               pool.query('SELECT day_of_week, start_time, end_time FROM therapist_slots WHERE therapist_id = $1 AND active = true', [t.id]),
             ]);
-            billing = calculateBilling(sessionsRes.rows, slotsRes.rows, t.slot_rate, tiers);
+            const ratio1 = await getContractRatio(t.id, year, month);
+            billing = calculateBilling(sessionsRes.rows, slotsRes.rows, t.slot_rate, tiers, ratio1);
           }
         } else {
           // חודש נוכחי — חישוב חי
@@ -314,7 +353,8 @@ router.get('/summary/:year/:month', isAdmin, async (req, res) => {
               [t.id]
             ),
           ]);
-          billing = calculateBilling(sessionsRes.rows, slotsRes.rows, t.slot_rate, tiers);
+          const ratio2 = await getContractRatio(t.id, year, month);
+          billing = calculateBilling(sessionsRes.rows, slotsRes.rows, t.slot_rate, tiers, ratio2);
           await ensureMonthlyDiscount(t.id, year, month, t.monthly_discount);
         }
 
@@ -386,12 +426,14 @@ router.get('/:therapistId/:year/:month', isAdminOrTherapist, async (req, res) =>
         billing = invoiceToBilling(snapshot);
       } else {
         const { slot_rate, monthly_discount } = therapistResult.rows[0];
-        billing = calculateBilling(sessionsRes.rows, slotsRes.rows, slot_rate, tiers);
+        const ratio = await getContractRatio(therapistId, year, month);
+        billing = calculateBilling(sessionsRes.rows, slotsRes.rows, slot_rate, tiers, ratio);
         await ensureMonthlyDiscount(therapistId, year, month, monthly_discount);
       }
     } else {
       const { slot_rate, monthly_discount } = therapistResult.rows[0];
-      billing = calculateBilling(sessionsRes.rows, slotsRes.rows, slot_rate, tiers);
+      const ratio = await getContractRatio(therapistId, year, month);
+      billing = calculateBilling(sessionsRes.rows, slotsRes.rows, slot_rate, tiers, ratio);
       await ensureMonthlyDiscount(therapistId, year, month, monthly_discount);
     }
 
@@ -491,7 +533,8 @@ router.post('/:therapistId/:year/:month/save', isAdmin, async (req, res) => {
     ]);
 
     const { slot_rate } = therapistRes.rows[0] || {};
-    const billing = calculateBilling(sessionsRes.rows, slotsRes.rows, slot_rate, tiers);
+    const saveRatio = await getContractRatio(therapistId, year, month);
+    const billing = calculateBilling(sessionsRes.rows, slotsRes.rows, slot_rate, tiers, saveRatio);
 
     const result = await pool.query(
       `INSERT INTO invoices
