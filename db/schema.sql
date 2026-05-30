@@ -99,3 +99,7 @@ CREATE INDEX IF NOT EXISTS idx_sessions_time ON sessions(start_time, end_time);
 CREATE INDEX IF NOT EXISTS idx_invoices_therapist ON invoices(therapist_id);
 CREATE INDEX IF NOT EXISTS idx_slots_therapist ON therapist_slots(therapist_id);
 CREATE INDEX IF NOT EXISTS idx_adjustments_therapist ON billing_adjustments(therapist_id, year, month);
+-- מונע כפילויות מסינק גוגל קאלנדר (therapist_id + start + end ייחודיים לפגישות מאושרות)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_therapist_time_unique
+  ON sessions (therapist_id, start_time, end_time)
+  WHERE therapist_id IS NOT NULL AND status = 'confirmed';

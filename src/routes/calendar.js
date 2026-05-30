@@ -122,7 +122,7 @@ router.post('/sync', isAdmin, async (req, res) => {
         );
       }
 
-      // שלב 2: bulk upsert — ON CONFLICT על google_event_id (כולל חדשים ושינויי שעה)
+      // שלב 2: bulk upsert — ON CONFLICT על google_event_id ועל (therapist_id, start_time, end_time)
       const therapistIds = rows.map(r => r[0]);
       const startTimes   = rows.map(r => r[1]);
       const endTimes     = rows.map(r => r[2]);
@@ -143,6 +143,18 @@ router.post('/sync', isAdmin, async (req, res) => {
                therapist_id = COALESCE(EXCLUDED.therapist_id, sessions.therapist_id)`,
         [therapistIds, startTimes, endTimes, eventIds, statuses, notes]
       );
+
+      // שלב 3: מחק כפילויות שנוצרו למרות ה-upsert (therapist_id+start+end זהים, google_event_id שונה)
+      await pool.query(`
+        DELETE FROM sessions
+        WHERE id IN (
+          SELECT unnest(array_agg(id ORDER BY id DESC))
+          FROM sessions
+          WHERE status = 'confirmed' AND therapist_id IS NOT NULL
+          GROUP BY therapist_id, start_time, end_time
+          HAVING count(*) > 1
+        )
+      `);
 
       results.imported = rows.length;
     }
@@ -242,9 +254,8 @@ router.post('/push', isAdmin, async (req, res) => {
 // ניקוי כפילויות: פגישות עם אותו therapist_id + start_time + end_time — שמור את זו עם google_event_id, מחק השאר
 router.post('/deduplicate', isAdmin, async (req, res) => {
   try {
-    // מצא קבוצות כפילויות
     const dupes = await pool.query(`
-      SELECT therapist_id, start_time, end_time, array_agg(id ORDER BY google_event_id NULLS LAST, id) AS ids
+      SELECT array_agg(id ORDER BY google_event_id NULLS LAST, id) AS ids
       FROM sessions
       WHERE status = 'confirmed'
       GROUP BY therapist_id, start_time, end_time
