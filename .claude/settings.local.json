@@ -15,7 +15,8 @@
       "Bash(node --check src/routes/sessions.js)",
       "Bash(git push *)",
       "Bash(git add *)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(node *)"
     ]
   }
 }

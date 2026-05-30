@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>קליניקת גולן — ססיות</title>
+  <link rel="stylesheet" href="/style.css">
+  <style>
+    .badge-purple { background:#e9d8fd; color:#553c9a; }
+    .auto-rate { color:#718096; font-style:italic; }
+    .ended { opacity:.6; }
+    .status-chip {
+      display:inline-block; padding:2px 8px; border-radius:12px;
+      font-size:12px; font-weight:600;
+    }
+    .chip-active  { background:#c6f6d5; color:#276749; }
+    .chip-future  { background:#bee3f8; color:#2a4365; }
+    .chip-ended   { background:#fed7d7; color:#742a2a; }
+  </style>
+</head>
+<body>
+<div class="layout">
+
+  <aside class="sidebar">
+    <div class="sidebar-logo"><span>🏥</span>קליניקת גולן</div>
+    <nav>
+      <a href="/admin/index.html"><span class="icon">📊</span>לוח מחוונים</a>
+      <a href="/admin/schedule.html"><span class="icon">📅</span>לוח זמנים</a>
+      <a href="/admin/therapists.html"><span class="icon">👥</span>מטפלים</a>
+      <a href="/admin/contracts.html" class="active"><span class="icon">📋</span>ססיות</a>
+      <a href="/admin/billing.html"><span class="icon">💰</span>חיובים</a>
+      <a href="/admin/settings.html"><span class="icon">⚙️</span>הגדרות</a>
+    </nav>
+    <form action="/auth/logout" method="post" style="display:contents;">
+      <button class="sidebar-logout-mobile" type="submit"><span class="icon">🚪</span>יציאה</button>
+    </form>
+    <div class="sidebar-user">
+      <div class="name" id="userName">...</div>
+      <div class="role">מנהל</div>
+      <form action="/auth/logout" method="post">
+        <button class="btn-logout" type="submit">יציאה</button>
+      </form>
+    </div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <h2>ניהול ססיות</h2>
+      <button class="btn btn-primary" onclick="openModal()">+ הוסף ססיה</button>
+    </div>
+
+    <div class="content">
+      <div id="alertBox" class="alert"></div>
+
+      <div class="card">
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>מטפל</th>
+              <th>תחילה</th>
+              <th>סיום</th>
+              <th>טווח</th>
+              <th>שעות/שבוע</th>
+              <th>₪/חודש</th>
+              <th>סה"כ לתקופה</th>
+              <th>חידוש אוטומטי</th>
+              <th>סטטוס</th>
+              <th>פעולות</th>
+            </tr></thead>
+            <tbody id="contractsTable">
+              <tr><td colspan="10" class="loading">טוען...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal" style="max-width:560px;width:100%;">
+    <button class="modal-close" onclick="closeModal()">✕</button>
+    <h3 id="modalTitle">הוספת ססיה</h3>
+    <input type="hidden" id="editId">
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 16px;">
+      <div class="form-group" style="grid-column:1/-1;">
+        <label>מטפל *</label>
+        <select class="form-control" id="fTherapist" onchange="onTherapistChange()">
+          <option value="">— בחר מטפל —</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>תאריך התחלה *</label>
+        <input type="date" class="form-control" id="fStartDate" oninput="updateEndDate()">
+      </div>
+      <div class="form-group">
+        <label>טווח *</label>
+        <select class="form-control" id="fDuration" onchange="updateEndDate()">
+          <option value="6">חצי שנה (6 חודשים)</option>
+          <option value="12">שנה (12 חודשים)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>תאריך סיום (מחושב)</label>
+        <input type="date" class="form-control" id="fEndDate" readonly style="background:#f7fafc;color:#718096;">
+      </div>
+      <div class="form-group">
+        <label>שעות שבועיות (לפי ססיות)</label>
+        <input type="text" class="form-control" id="fWeeklyHours" readonly style="background:#f7fafc;color:#718096;" placeholder="בחר מטפל">
+      </div>
+
+      <div class="form-group">
+        <label>₪/חודש אוטומטי</label>
+        <input type="text" class="form-control" id="fAutoRate" readonly style="background:#f7fafc;color:#718096;" placeholder="—">
+      </div>
+      <div class="form-group">
+        <label>₪/חודש ידני (ריק = אוטומטי)</label>
+        <input type="number" class="form-control" id="fSlotRate" min="0" step="0.01" placeholder="ריק = לפי מדרגות" oninput="updateTotal()">
+      </div>
+
+      <div class="form-group" style="grid-column:1/-1;">
+        <label>עלות כוללת לתקופה</label>
+        <input type="text" class="form-control" id="fTotal" readonly style="background:#f7fafc;font-weight:700;font-size:16px;">
+      </div>
+
+      <div class="form-group" style="grid-column:1/-1;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+          <input type="checkbox" id="fAutoRenew" checked>
+          <span>חידוש אוטומטי בתום התקופה</span>
+        </label>
+      </div>
+
+      <div class="form-group" style="grid-column:1/-1;">
+        <label>הערות</label>
+        <textarea class="form-control" id="fNotes" rows="2" placeholder="הערות אופציונליות"></textarea>
+      </div>
+    </div>
+
+    <div id="modalAlert" class="alert"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:12px;">
+      <button class="btn btn-ghost" onclick="closeModal()">ביטול</button>
+      <button class="btn btn-primary" onclick="saveContract()">שמור</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  let therapists = [];
+  let contracts = [];
+
+  fetch('/auth/me').then(r => r.json()).then(u => {
+    document.getElementById('userName').textContent = u.name || u.email;
+  });
+
+  async function init() {
+    const [tRes, cRes] = await Promise.all([
+      fetch('/api/therapists').then(r => r.json()),
+      fetch('/api/contracts').then(r => r.json()),
+    ]);
+    therapists = tRes;
+    contracts = cRes;
+    populateTherapistDropdown();
+    renderTable();
+  }
+
+  function populateTherapistDropdown() {
+    const sel = document.getElementById('fTherapist');
+    // שמור option ריק ראשון
+    while (sel.options.length > 1) sel.remove(1);
+    therapists.filter(t => t.active && !t.is_admin).forEach(t => {
+      sel.add(new Option(t.name, t.id));
+    });
+  }
+
+  function contractStatus(c) {
+    const today = new Date().toISOString().slice(0, 10);
+    if (c.start_date > today) return 'future';
+    if (c.end_date < today) return 'ended';
+    return 'active';
+  }
+
+  function statusBadge(c) {
+    const s = contractStatus(c);
+    const labels = { active: 'פעיל', future: 'עתידי', ended: 'הסתיים' };
+    const cls    = { active: 'chip-active', future: 'chip-future', ended: 'chip-ended' };
+    return `<span class="status-chip ${cls[s]}">${labels[s]}</span>`;
+  }
+
+  function fmtDate(d) {
+    if (!d) return '—';
+    return new Date(d).toLocaleDateString('he-IL', { day:'numeric', month:'numeric', year:'numeric' });
+  }
+
+  function renderTable() {
+    const tbody = document.getElementById('contractsTable');
+    if (!contracts.length) {
+      tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#718096;padding:24px;">אין ססיות רשומות</td></tr>';
+      return;
+    }
+    tbody.innerHTML = contracts.map(c => {
+      const rateStr = c.slot_rate
+        ? '₪' + parseFloat(c.slot_rate).toFixed(0)
+        : '<span class="auto-rate">~₪' + (c.monthly_rate || 0).toFixed(0) + '</span>';
+      const totalStr = '₪' + (c.total_amount || 0).toLocaleString('he-IL', { maximumFractionDigits: 0 });
+      const weeklyHrs = c.weekly_slot_minutes ? (c.weekly_slot_minutes / 60).toFixed(1) + ' ש\'' : '—';
+      return `<tr>
+        <td><strong>${c.therapist_name || '—'}</strong></td>
+        <td>${fmtDate(c.start_date)}</td>
+        <td>${fmtDate(c.end_date)}</td>
+        <td>${c.duration_months} ח'</td>
+        <td>${weeklyHrs}</td>
+        <td>${rateStr}</td>
+        <td>${totalStr}</td>
+        <td>${c.auto_renew ? '<span class="badge badge-green">כן</span>' : '<span class="badge badge-gray">לא</span>'}</td>
+        <td>${statusBadge(c)}</td>
+        <td>
+          <button class="btn btn-ghost btn-sm" onclick="editContract(${c.id})">✏️</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteContract(${c.id})">🗑️</button>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+
+  function onTherapistChange() {
+    const tid = parseInt(document.getElementById('fTherapist').value);
+    const t = therapists.find(x => x.id === tid);
+    if (!t) {
+      document.getElementById('fWeeklyHours').value = '';
+      document.getElementById('fAutoRate').value = '';
+      updateTotal();
+      return;
+    }
+    const weeklyHrs = t.weekly_slot_minutes ? (t.weekly_slot_minutes / 60).toFixed(1) : '0';
+    document.getElementById('fWeeklyHours').value = weeklyHrs + ' ש\'';
+    // slot_cost_estimate = חישוב אוטומטי לחודש אחד
+    const autoMonthly = t.slot_cost_estimate ? '₪' + t.slot_cost_estimate.toFixed(0) : 'לא מוגדרות ססיות';
+    document.getElementById('fAutoRate').value = autoMonthly;
+    updateTotal();
+  }
+
+  function updateEndDate() {
+    const start = document.getElementById('fStartDate').value;
+    const dur   = parseInt(document.getElementById('fDuration').value);
+    if (!start || !dur) { document.getElementById('fEndDate').value = ''; return; }
+    const d = new Date(start);
+    d.setMonth(d.getMonth() + dur);
+    document.getElementById('fEndDate').value = d.toISOString().slice(0, 10);
+    updateTotal();
+  }
+
+  function updateTotal() {
+    const dur = parseInt(document.getElementById('fDuration').value) || 0;
+    const manualRate = parseFloat(document.getElementById('fSlotRate').value);
+    const tid = parseInt(document.getElementById('fTherapist').value);
+    const t = therapists.find(x => x.id === tid);
+    const autoRate = t?.slot_cost_estimate || 0;
+    const rate = !isNaN(manualRate) && manualRate > 0 ? manualRate : autoRate;
+    const total = rate * dur;
+    document.getElementById('fTotal').value = total > 0 ? '₪' + total.toLocaleString('he-IL', { maximumFractionDigits: 0 }) : '—';
+  }
+
+  function openModal(c = null) {
+    document.getElementById('editId').value = c ? c.id : '';
+    document.getElementById('modalTitle').textContent = c ? 'עריכת ססיה' : 'הוספת ססיה';
+    document.getElementById('fTherapist').value = c ? c.therapist_id : '';
+    document.getElementById('fStartDate').value = c ? c.start_date?.slice(0, 10) : '';
+    document.getElementById('fDuration').value = c ? c.duration_months : '6';
+    document.getElementById('fSlotRate').value = c && c.slot_rate ? parseFloat(c.slot_rate) : '';
+    document.getElementById('fAutoRenew').checked = c ? c.auto_renew : true;
+    document.getElementById('fNotes').value = c ? (c.notes || '') : '';
+    onTherapistChange();
+    updateEndDate();
+    hideAlert('modalAlert');
+    document.getElementById('modalOverlay').classList.add('open');
+  }
+
+  function editContract(id) { openModal(contracts.find(c => c.id === id)); }
+  function closeModal() { document.getElementById('modalOverlay').classList.remove('open'); }
+
+  async function saveContract() {
+    const id = document.getElementById('editId').value;
+    const slotRateVal = document.getElementById('fSlotRate').value.trim();
+    const body = {
+      therapist_id: parseInt(document.getElementById('fTherapist').value),
+      start_date:   document.getElementById('fStartDate').value,
+      duration_months: parseInt(document.getElementById('fDuration').value),
+      slot_rate: slotRateVal !== '' ? parseFloat(slotRateVal) : null,
+      auto_renew: document.getElementById('fAutoRenew').checked,
+      notes: document.getElementById('fNotes').value.trim() || null,
+    };
+    if (!body.therapist_id || !body.start_date) {
+      showAlert('modalAlert', 'מטפל ותאריך התחלה הם שדות חובה', 'error'); return;
+    }
+    try {
+      const res = await fetch(id ? `/api/contracts/${id}` : '/api/contracts', {
+        method: id ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) { showAlert('modalAlert', data.error || 'שגיאה', 'error'); return; }
+      closeModal();
+      showAlert('alertBox', id ? 'הססיה עודכנה בהצלחה' : 'הססיה נוספה בהצלחה', 'success');
+      await init();
+    } catch { showAlert('modalAlert', 'שגיאת רשת', 'error'); }
+  }
+
+  async function deleteContract(id) {
+    if (!confirm('למחוק את הססיה?')) return;
+    try {
+      const res = await fetch(`/api/contracts/${id}`, { method: 'DELETE' });
+      if (!res.ok) { showAlert('alertBox', 'שגיאה במחיקה', 'error'); return; }
+      showAlert('alertBox', 'הססיה נמחקה', 'success');
+      await init();
+    } catch { showAlert('alertBox', 'שגיאת רשת', 'error'); }
+  }
+
+  function showAlert(id, msg, type) {
+    const el = document.getElementById(id);
+    el.textContent = msg;
+    el.className = `alert alert-${type} show`;
+    setTimeout(() => el.classList.remove('show'), 4000);
+  }
+  function hideAlert(id) { document.getElementById(id).className = 'alert'; }
+
+  init();
+</script>
+</body>
+</html>

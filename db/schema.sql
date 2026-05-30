@@ -93,7 +93,21 @@ CREATE TABLE IF NOT EXISTS rate_tiers (
 ALTER TABLE therapists ADD COLUMN IF NOT EXISTS monthly_discount DECIMAL(8,2);
 ALTER TABLE therapists ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT false;
 
+-- חוזים תקופתיים (ססיות)
+CREATE TABLE IF NOT EXISTS slot_contracts (
+  id SERIAL PRIMARY KEY,
+  therapist_id INTEGER REFERENCES therapists(id) ON DELETE CASCADE,
+  start_date DATE NOT NULL,
+  duration_months INTEGER NOT NULL CHECK (duration_months IN (6, 12)),
+  end_date DATE NOT NULL,
+  slot_rate DECIMAL(10,2),        -- NULL = חישוב אוטומטי לפי מדרגות
+  auto_renew BOOLEAN DEFAULT true,
+  notes TEXT,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
 -- אינדקסים
+CREATE INDEX IF NOT EXISTS idx_slot_contracts_therapist ON slot_contracts(therapist_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_therapist ON sessions(therapist_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_time ON sessions(start_time, end_time);
 CREATE INDEX IF NOT EXISTS idx_invoices_therapist ON invoices(therapist_id);
