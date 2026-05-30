@@ -56,7 +56,10 @@
   <div class="main">
     <div class="topbar">
       <h2>לוח זמנים</h2>
-      <button class="btn btn-primary" onclick="openNewModal()">+ פגישה חדשה</button>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-secondary btn-sm" onclick="syncCalendar()" id="syncBtn">🔄 סנכרן</button>
+        <button class="btn btn-primary" onclick="openNewModal()">+ פגישה חדשה</button>
+      </div>
     </div>
 
     <div class="content">
@@ -468,6 +471,30 @@
     }).catch(() => {});
     loadEvents();
   })();
+
+  async function syncCalendar() {
+    const btn = document.getElementById('syncBtn');
+    btn.disabled = true;
+    btn.textContent = '⏳ מסנכרן...';
+    try {
+      const [syncRes, pushRes] = await Promise.all([
+        fetch('/api/calendar/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then(r => r.json()),
+        fetch('/api/calendar/push', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then(r => r.json()),
+      ]);
+      if (syncRes.success) {
+        const dedupeRes = await fetch('/api/calendar/deduplicate', { method: 'POST' }).then(r => r.json());
+        const removedMsg = dedupeRes.removed > 0 ? `, נוקו ${dedupeRes.removed} כפילויות` : '';
+        showAlert('alertBox', `סונכרן — יובאו ${syncRes.imported}, נדחפו ${pushRes.pushed ?? 0}${removedMsg}`, 'success');
+        loadEvents();
+      } else {
+        showAlert('alertBox', 'שגיאה בסינק: ' + (syncRes.error || 'לא ידוע'), 'error');
+      }
+    } catch (e) {
+      showAlert('alertBox', 'שגיאת רשת', 'error');
+    }
+    btn.disabled = false;
+    btn.textContent = '🔄 סנכרן';
+  }
 </script>
 </body>
 </html>
