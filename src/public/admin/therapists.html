@@ -177,7 +177,11 @@
         <td>${t.email}</td>
         <td>${t.phone || '—'}</td>
         <td>${t.type === 'fixed' ? '<span class="badge badge-blue">קבוע</span>' : '<span class="badge badge-gray">גמיש</span>'}</td>
-        <td>${t.type === 'fixed' && t.slot_rate ? '₪' + parseFloat(t.slot_rate).toFixed(0) + '/ש׳' : t.type === 'fixed' ? 'לפי מדרגות' : '—'}</td>
+        <td>${t.type === 'fixed' && t.slot_rate
+          ? '₪' + parseFloat(t.slot_rate).toFixed(0) + '/ח׳'
+          : t.type === 'fixed' && t.slot_cost_estimate
+            ? '<span title="חישוב אוטומטי: שעות × 4 × מחיר מדרגות" style="color:#718096;">~₪' + t.slot_cost_estimate.toFixed(0) + '/ח׳</span>'
+            : t.type === 'fixed' ? 'לפי מדרגות' : '—'}</td>
         <td>${t.is_admin ? '<span class="badge badge-blue">כן</span>' : '—'}</td>
         <td>${t.active ? '<span class="badge badge-green">פעיל</span>' : '<span class="badge badge-red">לא פעיל</span>'}</td>
         <td>

@@ -3,13 +3,43 @@ const router = express.Router();
 const pool = require('../config/db');
 const { isAdmin } = require('../middleware/auth');
 
-// GET /api/therapists — כל המטפלים
+function calcRateFromTiers(hours, tiers) {
+  for (const tier of tiers) {
+    if (tier.max_hours === null || hours < parseFloat(tier.max_hours)) return parseFloat(tier.rate);
+  }
+  return parseFloat(tiers[tiers.length - 1].rate);
+}
+
+// GET /api/therapists — כל המטפלים, עם slot_cost_estimate לאלו ללא slot_rate ידני
 router.get('/', isAdmin, async (req, res) => {
   try {
-    const result = await pool.query(
-      'SELECT id, name, email, phone, type, active, calendar_name, slot_rate, monthly_discount, is_admin, created_at FROM therapists ORDER BY name'
-    );
-    res.json(result.rows);
+    const [therapistsRes, slotsRes, tiersRes] = await Promise.all([
+      pool.query('SELECT id, name, email, phone, type, active, calendar_name, slot_rate, monthly_discount, is_admin, created_at FROM therapists ORDER BY name'),
+      pool.query('SELECT therapist_id, start_time, end_time FROM therapist_slots WHERE active = true'),
+      pool.query('SELECT max_hours, rate FROM rate_tiers ORDER BY max_hours ASC NULLS LAST'),
+    ]);
+
+    const tiers = tiersRes.rows;
+    // קבץ ססיות לפי מטפל וחשב שעות שבועיות
+    const weeklyMinutes = {};
+    for (const s of slotsRes.rows) {
+      const [sh, sm] = s.start_time.split(':').map(Number);
+      const [eh, em] = s.end_time.split(':').map(Number);
+      weeklyMinutes[s.therapist_id] = (weeklyMinutes[s.therapist_id] || 0) + (eh * 60 + em) - (sh * 60 + sm);
+    }
+
+    const rows = therapistsRes.rows.map(t => {
+      const wMin = weeklyMinutes[t.id] || 0;
+      const monthlyHours = (wMin / 60) * 4;
+      let slotCostEstimate = null;
+      if (!t.slot_rate && monthlyHours > 0 && tiers.length > 0) {
+        const rate = calcRateFromTiers(monthlyHours, tiers);
+        slotCostEstimate = Math.round(monthlyHours * rate * 100) / 100;
+      }
+      return { ...t, weekly_slot_minutes: wMin, slot_cost_estimate: slotCostEstimate };
+    });
+
+    res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
