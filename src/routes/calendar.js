@@ -122,7 +122,7 @@ router.post('/sync', isAdmin, async (req, res) => {
         );
       }
 
-      // שלב 2: bulk upsert — ON CONFLICT על google_event_id ועל (therapist_id, start_time, end_time)
+      // שלב 2: upsert בשני שלבים — עדכון קיימים לפי google_event_id, הכנסת חדשים
       const therapistIds = rows.map(r => r[0]);
       const startTimes   = rows.map(r => r[1]);
       const endTimes     = rows.map(r => r[2]);
@@ -130,21 +130,42 @@ router.post('/sync', isAdmin, async (req, res) => {
       const statuses     = rows.map(r => r[4]);
       const notes        = rows.map(r => r[5]);
 
+      // 2a: עדכן שורות קיימות לפי google_event_id
+      await pool.query(
+        `UPDATE sessions s
+         SET start_time   = m.start_time,
+             end_time     = m.end_time,
+             status       = m.status,
+             therapist_id = COALESCE(m.therapist_id, s.therapist_id)
+         FROM (
+           SELECT * FROM unnest($1::int[], $2::timestamptz[], $3::timestamptz[], $4::text[], $5::text[])
+             AS t(therapist_id, start_time, end_time, event_id, status)
+         ) m
+         WHERE s.google_event_id = m.event_id`,
+        [therapistIds, startTimes, endTimes, eventIds, statuses]
+      );
+
+      // 2b: הכנס רק אירועים שאין להם שורה קיימת כלל (לא לפי event_id ולא לפי therapist+זמן)
       await pool.query(
         `INSERT INTO sessions (therapist_id, start_time, end_time, google_event_id, status, notes)
-         SELECT * FROM unnest(
-           $1::int[], $2::timestamptz[], $3::timestamptz[],
-           $4::text[], $5::text[], $6::text[]
+         SELECT m.therapist_id, m.start_time, m.end_time, m.event_id, m.status, m.notes
+         FROM unnest($1::int[], $2::timestamptz[], $3::timestamptz[], $4::text[], $5::text[], $6::text[])
+           AS m(therapist_id, start_time, end_time, event_id, status, notes)
+         WHERE NOT EXISTS (
+           SELECT 1 FROM sessions s WHERE s.google_event_id = m.event_id
          )
-         ON CONFLICT (google_event_id) DO UPDATE
-           SET start_time   = EXCLUDED.start_time,
-               end_time     = EXCLUDED.end_time,
-               status       = EXCLUDED.status,
-               therapist_id = COALESCE(EXCLUDED.therapist_id, sessions.therapist_id)`,
+         AND NOT EXISTS (
+           SELECT 1 FROM sessions s
+           WHERE s.therapist_id = m.therapist_id
+             AND s.therapist_id IS NOT NULL
+             AND s.start_time = m.start_time
+             AND s.end_time   = m.end_time
+             AND s.status = 'confirmed'
+         )`,
         [therapistIds, startTimes, endTimes, eventIds, statuses, notes]
       );
 
-      // שלב 3: מחק כפילויות שנוצרו למרות ה-upsert (therapist_id+start+end זהים, google_event_id שונה)
+      // 2c: מחק כפילויות שנותרו (therapist_id+start+end זהים, שומר את ה-ID הנמוך)
       await pool.query(`
         DELETE FROM sessions
         WHERE id IN (
