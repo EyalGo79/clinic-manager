@@ -147,11 +147,16 @@ router.post('/sync', isAdmin, async (req, res) => {
       const notes        = rows.map(r => r[5]);
 
       // 2a: עדכן שורות קיימות לפי google_event_id
+      // — אם גוגל מחזיר confirmed ו-DB הוא cancelled → החזר ל-confirmed
+      // — לא לגעת ב-cancelled_charged לעולם
       await pool.query(
         `UPDATE sessions s
          SET start_time   = m.start_time,
              end_time     = m.end_time,
-             status       = m.status,
+             status       = CASE
+               WHEN s.status = 'cancelled_charged' THEN s.status
+               ELSE m.status
+             END,
              therapist_id = COALESCE(m.therapist_id, s.therapist_id)
          FROM (
            SELECT * FROM unnest($1::int[], $2::timestamptz[], $3::timestamptz[], $4::text[], $5::text[])
