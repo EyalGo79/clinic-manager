@@ -99,19 +99,26 @@ router.post('/sync', isAdmin, async (req, res) => {
     }
 
     if (rows.length > 0) {
-      // שלב 1: חבר אירועי גוגל לפגישות קיימות ב-DB שחסר להן google_event_id —
-      // מחפש לפי therapist_id + start_time + end_time (חלון ±1 דקה למקרה של עיגול שניות)
-      for (const row of rows) {
-        const [therapistId, startTime, endTime, eventId] = row;
-        if (!therapistId) continue;
+      // שלב 1: חבר אירועי גוגל לפגישות קיימות ב-DB שחסר להן google_event_id — query אחד
+      const matchIds      = rows.filter(r => r[0]).map(r => r[3]);
+      const matchTherapists = rows.filter(r => r[0]).map(r => r[0]);
+      const matchStarts   = rows.filter(r => r[0]).map(r => r[1]);
+      const matchEnds     = rows.filter(r => r[0]).map(r => r[2]);
+
+      if (matchIds.length > 0) {
         await pool.query(
-          `UPDATE sessions
-           SET google_event_id = $1
-           WHERE google_event_id IS NULL
-             AND therapist_id = $2
-             AND start_time BETWEEN ($3::timestamptz - interval '1 minute') AND ($3::timestamptz + interval '1 minute')
-             AND end_time   BETWEEN ($4::timestamptz - interval '1 minute') AND ($4::timestamptz + interval '1 minute')`,
-          [eventId, therapistId, startTime, endTime]
+          `UPDATE sessions s
+           SET google_event_id = m.event_id
+           FROM (
+             SELECT * FROM unnest(
+               $1::text[], $2::int[], $3::timestamptz[], $4::timestamptz[]
+             ) AS t(event_id, therapist_id, start_time, end_time)
+           ) m
+           WHERE s.google_event_id IS NULL
+             AND s.therapist_id = m.therapist_id
+             AND s.start_time BETWEEN m.start_time - interval '1 minute' AND m.start_time + interval '1 minute'
+             AND s.end_time   BETWEEN m.end_time   - interval '1 minute' AND m.end_time   + interval '1 minute'`,
+          [matchIds, matchTherapists, matchStarts, matchEnds]
         );
       }
 
