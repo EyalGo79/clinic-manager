@@ -138,6 +138,38 @@
         <label>הערות</label>
         <textarea class="form-control" id="fNotes" rows="2" placeholder="הערות אופציונליות"></textarea>
       </div>
+
+      <!-- ניהול שעות ססיה — מוצג תמיד -->
+      <div style="grid-column:1/-1;margin-top:4px;">
+        <hr style="margin:12px 0;border-color:#e2e8f0;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <strong style="font-size:14px;">שעות ססיה שבועיות</strong>
+        </div>
+        <div id="slotsList" style="margin-bottom:10px;font-size:13px;min-height:24px;"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;align-items:end;">
+          <div class="form-group" style="margin:0;">
+            <label style="font-size:12px;">יום</label>
+            <select class="form-control" id="sDay" style="font-size:13px;">
+              <option value="0">ראשון</option>
+              <option value="1">שני</option>
+              <option value="2">שלישי</option>
+              <option value="3">רביעי</option>
+              <option value="4">חמישי</option>
+              <option value="5">שישי</option>
+              <option value="6">שבת</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin:0;">
+            <label style="font-size:12px;">שעת התחלה</label>
+            <input type="time" class="form-control" id="sStart" style="font-size:13px;">
+          </div>
+          <div class="form-group" style="margin:0;">
+            <label style="font-size:12px;">שעת סיום</label>
+            <input type="time" class="form-control" id="sEnd" style="font-size:13px;">
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="addSlot()" style="margin-bottom:0;" id="addSlotBtn">+ הוסף</button>
+        </div>
+      </div>
     </div>
 
     <div id="modalAlert" class="alert"></div>
@@ -149,8 +181,10 @@
 </div>
 
 <script>
+  const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
   let therapists = [];
   let contracts = [];
+  let currentTherapistId = null; // המטפל הנוכחי במודל (לניהול slots)
 
   fetch('/auth/me').then(r => r.json()).then(u => {
     document.getElementById('userName').textContent = u.name || u.email;
@@ -228,18 +262,118 @@
   function onTherapistChange() {
     const tid = parseInt(document.getElementById('fTherapist').value);
     const t = therapists.find(x => x.id === tid);
+    currentTherapistId = tid || null;
     if (!t) {
       document.getElementById('fWeeklyHours').value = '';
       document.getElementById('fAutoRate').value = '';
+      document.getElementById('slotsList').innerHTML = '<span style="color:#718096;font-style:italic;">בחר מטפל תחילה</span>';
+      document.getElementById('addSlotBtn').disabled = true;
       updateTotal();
       return;
     }
-    const weeklyHrs = t.weekly_slot_minutes ? (t.weekly_slot_minutes / 60).toFixed(1) : '0';
-    document.getElementById('fWeeklyHours').value = weeklyHrs + ' ש\'';
-    // slot_cost_estimate = חישוב אוטומטי לחודש אחד
-    const autoMonthly = t.slot_cost_estimate ? '₪' + t.slot_cost_estimate.toFixed(0) : 'לא מוגדרות ססיות';
-    document.getElementById('fAutoRate').value = autoMonthly;
+    document.getElementById('addSlotBtn').disabled = false;
+    loadSlots(tid);
     updateTotal();
+  }
+
+  async function loadSlots(therapistId) {
+    const container = document.getElementById('slotsList');
+    container.innerHTML = '<span style="color:#718096;">טוען...</span>';
+    try {
+      const slots = await fetch(`/api/therapists/${therapistId}/slots`).then(r => r.json());
+      renderSlots(slots.filter(s => s.active), therapistId);
+      refreshWeeklyStats(slots.filter(s => s.active));
+    } catch {
+      container.innerHTML = '<span style="color:#e53e3e;">שגיאה בטעינת שעות</span>';
+    }
+  }
+
+  function renderSlots(slots, therapistId) {
+    const container = document.getElementById('slotsList');
+    if (!slots.length) {
+      container.innerHTML = '<div style="color:#718096;font-style:italic;">אין שעות ססיה מוגדרות</div>';
+      return;
+    }
+    container.innerHTML = slots.map(s => `
+      <div style="display:flex;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid #f0f4f8;">
+        <span style="font-weight:500;min-width:48px;">${DAY_NAMES[s.day_of_week]}</span>
+        <span>${s.start_time.slice(0,5)} – ${s.end_time.slice(0,5)}</span>
+        <button class="btn btn-danger btn-sm" style="margin-right:auto;padding:2px 8px;"
+          onclick="deleteSlot(${therapistId}, ${s.id})">✕</button>
+      </div>
+    `).join('');
+  }
+
+  function refreshWeeklyStats(slots) {
+    const t = therapists.find(x => x.id === currentTherapistId);
+    // חשב שעות מהslots הנוכחיים (לא מה-cache של therapist)
+    let totalMins = 0;
+    for (const s of slots) {
+      const [sh, sm] = s.start_time.split(':').map(Number);
+      const [eh, em] = s.end_time.split(':').map(Number);
+      totalMins += (eh * 60 + em) - (sh * 60 + sm);
+    }
+    const weeklyHrs = (totalMins / 60).toFixed(1);
+    document.getElementById('fWeeklyHours').value = weeklyHrs + ' ש\'';
+    // חישוב אוטומטי: עדכן slot_cost_estimate בעותק המקומי
+    if (t) t.weekly_slot_minutes = totalMins;
+    // slot_cost_estimate מחושב בשרת — כאן נשתמש בנוסחה הפשוטה
+    // (השרת יחשב מחדש בטעינה הבאה; כאן רק תצוגה)
+    const monthlyHrs = (totalMins / 60) * 4;
+    if (t) t._localMonthlyHrs = monthlyHrs;
+    updateAutoRateDisplay(monthlyHrs);
+    updateTotal();
+  }
+
+  function updateAutoRateDisplay(monthlyHrs) {
+    const t = therapists.find(x => x.id === currentTherapistId);
+    if (!monthlyHrs) {
+      document.getElementById('fAutoRate').value = 'לא מוגדרות שעות';
+      return;
+    }
+    // השתמש ב-slot_cost_estimate כבסיס — אם יש, אחרת '...'
+    const est = t?.slot_cost_estimate;
+    if (est) {
+      // scale לפי יחס שעות
+      const origMins = t.weekly_slot_minutes || 0;
+      const newMonthly = origMins > 0
+        ? (est / ((origMins / 60) * 4)) * monthlyHrs
+        : est;
+      document.getElementById('fAutoRate').value = '₪' + Math.round(newMonthly);
+    } else {
+      document.getElementById('fAutoRate').value = '—';
+    }
+  }
+
+  async function addSlot() {
+    if (!currentTherapistId) return;
+    const day_of_week = parseInt(document.getElementById('sDay').value);
+    const start_time  = document.getElementById('sStart').value;
+    const end_time    = document.getElementById('sEnd').value;
+    if (!start_time || !end_time) {
+      showAlert('modalAlert', 'יש להזין שעת התחלה ושעת סיום', 'error'); return;
+    }
+    if (start_time >= end_time) {
+      showAlert('modalAlert', 'שעת הסיום חייבת להיות אחרי שעת ההתחלה', 'error'); return;
+    }
+    try {
+      const res = await fetch(`/api/therapists/${currentTherapistId}/slots`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ day_of_week, start_time, end_time }),
+      });
+      if (!res.ok) { const d = await res.json(); showAlert('modalAlert', d.error || 'שגיאה', 'error'); return; }
+      document.getElementById('sStart').value = '';
+      document.getElementById('sEnd').value = '';
+      loadSlots(currentTherapistId);
+    } catch { showAlert('modalAlert', 'שגיאת רשת', 'error'); }
+  }
+
+  async function deleteSlot(therapistId, slotId) {
+    try {
+      await fetch(`/api/therapists/${therapistId}/slots/${slotId}`, { method: 'DELETE' });
+      loadSlots(therapistId);
+    } catch { showAlert('modalAlert', 'שגיאת רשת', 'error'); }
   }
 
   function updateEndDate() {
@@ -255,9 +389,10 @@
   function updateTotal() {
     const dur = parseInt(document.getElementById('fDuration').value) || 0;
     const manualRate = parseFloat(document.getElementById('fSlotRate').value);
-    const tid = parseInt(document.getElementById('fTherapist').value);
-    const t = therapists.find(x => x.id === tid);
-    const autoRate = t?.slot_cost_estimate || 0;
+    const t = therapists.find(x => x.id === currentTherapistId);
+    // נסה auto-rate מהתצוגה
+    const autoRateText = document.getElementById('fAutoRate').value.replace(/[^\d.]/g, '');
+    const autoRate = parseFloat(autoRateText) || 0;
     const rate = !isNaN(manualRate) && manualRate > 0 ? manualRate : autoRate;
     const total = rate * dur;
     document.getElementById('fTotal').value = total > 0 ? '₪' + total.toLocaleString('he-IL', { maximumFractionDigits: 0 }) : '—';
@@ -272,7 +407,17 @@
     document.getElementById('fSlotRate').value = c && c.slot_rate ? parseFloat(c.slot_rate) : '';
     document.getElementById('fAutoRenew').checked = c ? c.auto_renew : true;
     document.getElementById('fNotes').value = c ? (c.notes || '') : '';
-    onTherapistChange();
+    document.getElementById('sStart').value = '';
+    document.getElementById('sEnd').value = '';
+    currentTherapistId = c ? c.therapist_id : null;
+    document.getElementById('addSlotBtn').disabled = !currentTherapistId;
+    if (currentTherapistId) {
+      loadSlots(currentTherapistId);
+    } else {
+      document.getElementById('slotsList').innerHTML = '<span style="color:#718096;font-style:italic;">בחר מטפל תחילה</span>';
+      document.getElementById('fWeeklyHours').value = '';
+      document.getElementById('fAutoRate').value = '';
+    }
     updateEndDate();
     hideAlert('modalAlert');
     document.getElementById('modalOverlay').classList.add('open');
