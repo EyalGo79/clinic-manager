@@ -70,6 +70,7 @@ router.post('/sync', isAdmin, async (req, res) => {
         timeMin: timeMin || new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString(),
         timeMax: timeMax || new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
         singleEvents: true,
+        showDeleted: true,
         orderBy: 'startTime',
         maxResults: 250,
         pageToken,
@@ -83,7 +84,13 @@ router.post('/sync', isAdmin, async (req, res) => {
 
     // בנה את כל הנתונים בזיכרון
     const rows = [];
+    const cancelledEventIds = []; // אירועים שנמחקו בגוגל ללא start/end
     for (const event of events) {
+      // אירוע מחוק ללא זמנים — סמן לביטול לפי google_event_id
+      if (event.status === 'cancelled' && !event.start?.dateTime && !event.start?.date) {
+        cancelledEventIds.push(event.id);
+        continue;
+      }
       const startRaw = event.start?.dateTime || (event.start?.date ? event.start.date + 'T08:00:00+03:00' : null);
       const endRaw   = event.end?.dateTime   || (event.end?.date   ? event.end.date   + 'T08:00:00+03:00' : null);
       if (!startRaw || !endRaw) { results.skipped++; continue; }
@@ -96,6 +103,15 @@ router.post('/sync', isAdmin, async (req, res) => {
       const status = event.status === 'cancelled' ? 'cancelled' : 'confirmed';
 
       rows.push([therapistId, startTime, endTime, event.id, status, event.summary || null]);
+    }
+
+    // סמן כ-cancelled פגישות שנמחקו בגוגל (אין להן start/end באירוע המחוק)
+    if (cancelledEventIds.length > 0) {
+      await pool.query(
+        `UPDATE sessions SET status = 'cancelled', cancelled_at = NOW()
+         WHERE google_event_id = ANY($1) AND status = 'confirmed'`,
+        [cancelledEventIds]
+      );
     }
 
     if (rows.length > 0) {
