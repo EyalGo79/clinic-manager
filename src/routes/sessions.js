@@ -5,22 +5,28 @@ const { isAdmin, isAdminOrTherapist } = require('../middleware/auth');
 const { upsertGoogleEvent, deleteGoogleEvent } = require('./calendar');
 
 const BUFFER_MINUTES = 15; // רבע שעה מינימום בין פגישות של מטפלים שונים
+const SAME_THERAPIST_MIN_GAP_MINUTES = 90; // בין שני טיפולים של אותו מטפל באותו יום: 0 (צמוד) או ≥ 90 דק'
 const LATE_CANCEL_HOURS = 24;
 
-// בדיקת חפיפה + בופר — מחזיר את הפגישה המתנגשת או null
+// בדיקת חפיפה + בופר — מחזיר { type, conflict } או null.
+// type: 'overlap_same' | 'overlap_other' | 'same_day_gap'
 async function getConflict(therapistId, startTime, endTime, excludeId = null) {
   const bufferMs = BUFFER_MINUTES * 60 * 1000;
   const bufferedStart = new Date(new Date(startTime).getTime() - bufferMs);
   const bufferedEnd = new Date(new Date(endTime).getTime() + bufferMs);
 
+  // 1) חפיפה ממש עם פגישה של אותו מטפל
   const sameTherapist = await pool.query(`
     SELECT id, start_time, end_time FROM sessions
     WHERE therapist_id = $1 AND status = 'confirmed' AND id != $2
       AND start_time < $3 AND end_time > $4
     LIMIT 1
   `, [therapistId, excludeId || 0, endTime, startTime]);
-  if (sameTherapist.rows.length > 0) return sameTherapist.rows[0];
+  if (sameTherapist.rows.length > 0) {
+    return { type: 'overlap_same', conflict: sameTherapist.rows[0] };
+  }
 
+  // 2) חפיפה (כולל בופר) עם פגישה של מטפל אחר
   const otherTherapist = await pool.query(`
     SELECT s.id, s.start_time, s.end_time, t.name AS therapist_name
     FROM sessions s
@@ -29,13 +35,61 @@ async function getConflict(therapistId, startTime, endTime, excludeId = null) {
       AND s.start_time < $3 AND s.end_time > $4
     LIMIT 1
   `, [therapistId, excludeId || 0, bufferedEnd, bufferedStart]);
-  if (otherTherapist.rows.length > 0) return otherTherapist.rows[0];
+  if (otherTherapist.rows.length > 0) {
+    return { type: 'overlap_other', conflict: otherTherapist.rows[0] };
+  }
+
+  // 3) פגישה אחרת של אותו מטפל באותו יום קלנדרי (Asia/Jerusalem) —
+  //    הפער מותר רק אם הוא 0 (צמוד) או ≥ SAME_THERAPIST_MIN_GAP_MINUTES.
+  //    הפער מחושב מ-end של הפגישה המוקדמת ל-start של המאוחרת.
+  const sameDay = await pool.query(`
+    SELECT id, start_time, end_time
+    FROM sessions
+    WHERE therapist_id = $1 AND status = 'confirmed' AND id != $2
+      AND (start_time AT TIME ZONE 'Asia/Jerusalem')::date
+          = ($3::timestamp AT TIME ZONE 'Asia/Jerusalem')::date
+      AND (
+        -- הפגישה הקיימת לפני החדשה: gap = newStart - existingEnd, חוסם 0 < gap < MIN
+        (end_time < $3 AND end_time > $3::timestamp - ($5 || ' minutes')::interval)
+        OR
+        -- הפגישה הקיימת אחרי החדשה: gap = existingStart - newEnd, חוסם 0 < gap < MIN
+        (start_time > $4 AND start_time < $4::timestamp + ($5 || ' minutes')::interval)
+      )
+    ORDER BY start_time
+    LIMIT 1
+  `, [therapistId, excludeId || 0, startTime, endTime, SAME_THERAPIST_MIN_GAP_MINUTES]);
+  if (sameDay.rows.length > 0) {
+    return { type: 'same_day_gap', conflict: sameDay.rows[0] };
+  }
 
   return null;
 }
 
-async function hasConflict(therapistId, startTime, endTime, excludeId = null) {
-  return (await getConflict(therapistId, startTime, endTime, excludeId)) !== null;
+// בונה הודעת שגיאה קריאה למשתמש מתוך תוצאת getConflict.
+function formatConflictError(result) {
+  const { type, conflict } = result;
+  const fmtTime = (d) => new Date(d).toLocaleTimeString('he-IL', {
+    timeZone: 'Asia/Jerusalem', hour: '2-digit', minute: '2-digit',
+  });
+  const fmtDate = (d) => new Date(d).toLocaleDateString('he-IL', {
+    timeZone: 'Asia/Jerusalem', weekday: 'long', day: 'numeric', month: 'long',
+  });
+  const start = fmtTime(conflict.start_time);
+  const end   = fmtTime(conflict.end_time);
+  const date  = fmtDate(conflict.start_time);
+
+  if (type === 'overlap_same') {
+    return `קיימת לך כבר פגישה ב-${date} בין ${start} ל-${end}.`;
+  }
+  if (type === 'overlap_other') {
+    const who = conflict.therapist_name ? ` של ${conflict.therapist_name}` : '';
+    return `קיימת פגישה${who} ב-${date} בין ${start} ל-${end} — נדרש מרווח של ${BUFFER_MINUTES} דקות לפחות.`;
+  }
+  if (type === 'same_day_gap') {
+    return `יש לך באותו יום פגישה בין ${start} ל-${end}. ` +
+           `פגישה נוספת חייבת להיות צמודה אליה, או בהפרש של לפחות ${SAME_THERAPIST_MIN_GAP_MINUTES / 60} שעות.`;
+  }
+  return 'קיימת פגישה מתנגשת.';
 }
 
 // GET /api/sessions — מנהל: הכל עם פרטים. מטפל: הכל, אבל פגישות של אחרים ללא פרטים
@@ -119,11 +173,9 @@ router.post('/', isAdminOrTherapist, async (req, res) => {
   }
 
   try {
-    const conflict = await hasConflict(therapist_id, start_time, end_time);
+    const conflict = await getConflict(therapist_id, start_time, end_time);
     if (conflict) {
-      return res.status(409).json({
-        error: `קיימת פגישה קרובה מדי — נדרש מרווח של ${BUFFER_MINUTES} דקות לפחות`,
-      });
+      return res.status(409).json({ error: formatConflictError(conflict) });
     }
 
     const result = await pool.query(
@@ -161,11 +213,9 @@ router.put('/:id', isAdminOrTherapist, async (req, res) => {
       return res.status(400).json({ error: 'שעת סיום חייבת להיות אחרי שעת התחלה' });
     }
 
-    const conflict = await hasConflict(session.therapist_id, newStart, newEnd, session.id);
+    const conflict = await getConflict(session.therapist_id, newStart, newEnd, session.id);
     if (conflict) {
-      return res.status(409).json({
-        error: `קיימת פגישה קרובה מדי — נדרש מרווח של ${BUFFER_MINUTES} דקות לפחות`,
-      });
+      return res.status(409).json({ error: formatConflictError(conflict) });
     }
 
     // קיצור ברגע האחרון — שמור end_time מקורי לצורך חיוב
@@ -234,15 +284,11 @@ router.post('/recurring', isAdminOrTherapist, async (req, res) => {
   for (const occ of occurrences) {
     const conflict = await getConflict(therapist_id, occ.start, occ.end);
     if (conflict) {
-      const conflictDate = new Date(conflict.start_time).toLocaleDateString('he-IL', {
-        weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+      const occDate = occ.start.toLocaleDateString('he-IL', {
+        timeZone: 'Asia/Jerusalem', weekday: 'long', day: 'numeric', month: 'long',
       });
-      const conflictStartTime = new Date(conflict.start_time).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
-      const conflictEndTime = new Date(conflict.end_time).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
-      const occDate = occ.start.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' });
-      const who = conflict.therapist_name ? ` (${conflict.therapist_name})` : '';
       return res.status(409).json({
-        error: `קונפליקט בתאריך ${occDate}: קיימת פגישה${who} בשעות ${conflictStartTime}–${conflictEndTime}`,
+        error: `קונפליקט בתאריך ${occDate}: ${formatConflictError(conflict)}`,
       });
     }
   }
