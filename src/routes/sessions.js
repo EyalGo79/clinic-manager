@@ -10,10 +10,18 @@ const LATE_CANCEL_HOURS = 24;
 
 // בדיקת חפיפה + בופר — מחזיר { type, conflict } או null.
 // type: 'overlap_same' | 'overlap_other' | 'same_day_gap'
+//
+// הערה על אזור זמן: עמודות sessions.start_time / end_time הן TIMESTAMP without time zone
+// אבל הקוד מאחסן בהן ערכי UTC (ה-driver של node-postgres כותב Date כ-UTC). כדי להימנע
+// מהמרות tz מבלבלות ב-SQL, אנחנו מושכים שורות מועמדות ומבצעים את חישובי ה-gap ב-JS,
+// שם Date תמיד מייצג instant חד-משמעי (ms מאז epoch).
 async function getConflict(therapistId, startTime, endTime, excludeId = null) {
+  const newStart = new Date(startTime);
+  const newEnd   = new Date(endTime);
   const bufferMs = BUFFER_MINUTES * 60 * 1000;
-  const bufferedStart = new Date(new Date(startTime).getTime() - bufferMs);
-  const bufferedEnd = new Date(new Date(endTime).getTime() + bufferMs);
+  const minGapMs = SAME_THERAPIST_MIN_GAP_MINUTES * 60 * 1000;
+  const bufferedStart = new Date(newStart.getTime() - bufferMs);
+  const bufferedEnd   = new Date(newEnd.getTime()   + bufferMs);
 
   // 1) חפיפה ממש עם פגישה של אותו מטפל
   const sameTherapist = await pool.query(`
@@ -41,25 +49,32 @@ async function getConflict(therapistId, startTime, endTime, excludeId = null) {
 
   // 3) פגישה אחרת של אותו מטפל באותו יום קלנדרי (Asia/Jerusalem) —
   //    הפער מותר רק אם הוא 0 (צמוד) או ≥ SAME_THERAPIST_MIN_GAP_MINUTES.
-  //    הפער מחושב מ-end של הפגישה המוקדמת ל-start של המאוחרת.
-  const sameDay = await pool.query(`
-    SELECT id, start_time, end_time
-    FROM sessions
+  //    מושכים את כל הפגישות של המטפל בטווח של ±יומיים מהזמן הנדרש (טווח שמרני שמכסה
+  //    את כל ה-tz offsets האפשריים) ומסננים ב-JS.
+  const windowMs = 36 * 60 * 60 * 1000; // 36h משני הצדדים — מספיק כדי לכסות כל יום קלנדרי
+  const windowStart = new Date(newStart.getTime() - windowMs);
+  const windowEnd   = new Date(newEnd.getTime()   + windowMs);
+  const candidates = await pool.query(`
+    SELECT id, start_time, end_time FROM sessions
     WHERE therapist_id = $1 AND status = 'confirmed' AND id != $2
-      AND (start_time AT TIME ZONE 'Asia/Jerusalem')::date
-          = ($3::timestamp AT TIME ZONE 'Asia/Jerusalem')::date
-      AND (
-        -- הפגישה הקיימת לפני החדשה: gap = newStart - existingEnd, חוסם 0 < gap < MIN
-        (end_time < $3 AND end_time > $3::timestamp - ($5 || ' minutes')::interval)
-        OR
-        -- הפגישה הקיימת אחרי החדשה: gap = existingStart - newEnd, חוסם 0 < gap < MIN
-        (start_time > $4 AND start_time < $4::timestamp + ($5 || ' minutes')::interval)
-      )
-    ORDER BY start_time
-    LIMIT 1
-  `, [therapistId, excludeId || 0, startTime, endTime, SAME_THERAPIST_MIN_GAP_MINUTES]);
-  if (sameDay.rows.length > 0) {
-    return { type: 'same_day_gap', conflict: sameDay.rows[0] };
+      AND start_time >= $3 AND start_time <= $4
+  `, [therapistId, excludeId || 0, windowStart, windowEnd]);
+
+  // יום קלנדרי בשעון ישראל בפורמט YYYY-MM-DD
+  const ilDay = (d) => new Date(d).toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' });
+  const newDay = ilDay(newStart);
+
+  for (const row of candidates.rows) {
+    if (ilDay(row.start_time) !== newDay) continue;
+    const exStart = new Date(row.start_time);
+    const exEnd   = new Date(row.end_time);
+    // gap לפי הסדר היחסי. חפיפה כבר נשללה למעלה, אז כאן אחד משני הצדדים תופס.
+    let gapMs = null;
+    if (exEnd <= newStart) gapMs = newStart - exEnd;       // הקיימת לפני החדשה
+    else if (exStart >= newEnd) gapMs = exStart - newEnd;  // הקיימת אחרי החדשה
+    if (gapMs !== null && gapMs > 0 && gapMs < minGapMs) {
+      return { type: 'same_day_gap', conflict: row };
+    }
   }
 
   return null;
