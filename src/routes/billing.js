@@ -138,21 +138,32 @@ async function getContractRatio(therapistId, year, month) {
      WHERE therapist_id = $1
        AND start_date < $3
        AND end_date   > $2
-     ORDER BY start_date
-     LIMIT 1`,
+     ORDER BY start_date`,
     [therapistId, monthStart.toISOString().slice(0, 10), monthEnd.toISOString().slice(0, 10)]
   );
 
   if (!result.rows.length) return 0;
 
-  const { start_date, end_date } = result.rows[0];
-  const contractStart = new Date(start_date);
-  const contractEnd   = new Date(end_date);
+  // מיזוג כל החוזות החופפים לחודש לטווח רציף אחד
+  let mergedStart = null;
+  let mergedEnd   = null;
+  for (const row of result.rows) {
+    const contractStart = new Date(row.start_date);
+    const contractEnd   = new Date(row.end_date);
+    const overlapStart  = contractStart > monthStart ? contractStart : monthStart;
+    const overlapEnd    = contractEnd   < monthEnd   ? contractEnd   : monthEnd;
+    if (overlapEnd <= overlapStart) continue;
+    if (mergedStart === null) {
+      mergedStart = overlapStart;
+      mergedEnd   = overlapEnd;
+    } else {
+      if (overlapStart < mergedStart) mergedStart = overlapStart;
+      if (overlapEnd   > mergedEnd)   mergedEnd   = overlapEnd;
+    }
+  }
 
-  const overlapStart = contractStart > monthStart ? contractStart : monthStart;
-  const overlapEnd   = contractEnd   < monthEnd   ? contractEnd   : monthEnd;
-  const overlapDays  = Math.max(0, (overlapEnd - overlapStart) / 86400000);
-
+  if (mergedStart === null) return 0;
+  const overlapDays = Math.max(0, (mergedEnd - mergedStart) / 86400000);
   return round2(overlapDays / daysInMonth);
 }
 
@@ -518,7 +529,8 @@ router.post('/:therapistId/:year/:month/save', isAdmin, async (req, res) => {
   try {
     const [sessionsRes, therapistRes, slotsRes, tiers] = await Promise.all([
       pool.query(
-        `SELECT start_time, end_time, EXTRACT(EPOCH FROM (end_time - start_time)) / 3600 AS hours
+        `SELECT start_time, end_time,
+              EXTRACT(EPOCH FROM (COALESCE(original_end_time, end_time) - start_time)) / 3600 AS hours
          FROM sessions
          WHERE therapist_id = $1
            AND EXTRACT(YEAR FROM start_time AT TIME ZONE 'Asia/Jerusalem') = $2
