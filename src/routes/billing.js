@@ -144,26 +144,28 @@ async function getContractRatio(therapistId, year, month) {
 
   if (!result.rows.length) return 0;
 
-  // מיזוג כל החוזות החופפים לחודש לטווח רציף אחד
+  // מיזוג כל החוזות לטווח רציף — כולל פער של יום אחד בין חוזה לחוזה
   let mergedStart = null;
   let mergedEnd   = null;
   for (const row of result.rows) {
     const contractStart = new Date(row.start_date);
     const contractEnd   = new Date(row.end_date);
-    const overlapStart  = contractStart > monthStart ? contractStart : monthStart;
-    const overlapEnd    = contractEnd   < monthEnd   ? contractEnd   : monthEnd;
-    if (overlapEnd <= overlapStart) continue;
     if (mergedStart === null) {
-      mergedStart = overlapStart;
-      mergedEnd   = overlapEnd;
+      mergedStart = contractStart;
+      mergedEnd   = contractEnd;
+    } else if (contractStart - mergedEnd <= 86400000) {
+      // חוזה חדש מתחיל תוך יום מסיום הקודם — מיזוג
+      if (contractEnd > mergedEnd) mergedEnd = contractEnd;
     } else {
-      if (overlapStart < mergedStart) mergedStart = overlapStart;
-      if (overlapEnd   > mergedEnd)   mergedEnd   = overlapEnd;
+      // פער של יותר מיום — עצור (החוזות ממוינים לפי start_date)
+      break;
     }
   }
 
   if (mergedStart === null) return 0;
-  const overlapDays = Math.max(0, (mergedEnd - mergedStart) / 86400000);
+  const clampedStart = mergedStart > monthStart ? mergedStart : monthStart;
+  const clampedEnd   = mergedEnd   < monthEnd   ? mergedEnd   : monthEnd;
+  const overlapDays  = Math.max(0, (clampedEnd - clampedStart) / 86400000);
   return round2(overlapDays / daysInMonth);
 }
 
