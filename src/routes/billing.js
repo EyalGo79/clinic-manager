@@ -133,13 +133,14 @@ async function getContractRatio(therapistId, year, month) {
   const monthEnd   = new Date(year, month, 1); // יום ראשון של החודש הבא (exclusive)
   const daysInMonth = (monthEnd - monthStart) / 86400000;
 
+  const oneDayBeforeMonthStart = new Date(monthStart.getTime() - 86400000);
   const result = await pool.query(
     `SELECT start_date, end_date FROM slot_contracts
      WHERE therapist_id = $1
        AND start_date < $3
-       AND end_date   > $2
+       AND end_date   >= $2
      ORDER BY start_date`,
-    [therapistId, monthStart.toISOString().slice(0, 10), monthEnd.toISOString().slice(0, 10)]
+    [therapistId, oneDayBeforeMonthStart.toISOString().slice(0, 10), monthEnd.toISOString().slice(0, 10)]
   );
 
   if (!result.rows.length) return 0;
