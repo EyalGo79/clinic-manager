@@ -279,6 +279,34 @@ function invoiceToBilling(inv) {
   };
 }
 
+// GET /api/billing/locked/:year/:month — האם החודש נעול
+router.get('/locked/:year/:month', isAdmin, async (req, res) => {
+  const { year, month } = req.params;
+  try {
+    const result = await pool.query(
+      'SELECT COUNT(*) FROM invoices WHERE year = $1 AND month = $2',
+      [year, month]
+    );
+    res.json({ locked: parseInt(result.rows[0].count) > 0 });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/billing/lock/:year/:month — ביטול נעילה
+router.delete('/lock/:year/:month', isAdmin, async (req, res) => {
+  const { year, month } = req.params;
+  try {
+    const result = await pool.query(
+      'DELETE FROM invoices WHERE year = $1 AND month = $2',
+      [year, month]
+    );
+    res.json({ unlocked: result.rowCount, year: parseInt(year), month: parseInt(month) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/billing/lock/:year/:month — נעילת חודש: שמור snapshot לכל המטפלים
 router.post('/lock/:year/:month', isAdmin, async (req, res) => {
   const { year, month } = req.params;

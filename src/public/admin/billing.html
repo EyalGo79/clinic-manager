@@ -75,6 +75,7 @@
           <button onclick="changeMonth(1)">›</button>
         </div>
         <button id="lockBtn" class="btn btn-ghost btn-sm" onclick="lockMonth()" style="display:none;">🔒 נעל חודש</button>
+        <button id="unlockBtn" class="btn btn-ghost btn-sm" onclick="unlockMonth()" style="display:none;">🔓 בטל נעילה</button>
       </div>
     </div>
 
@@ -186,6 +187,24 @@
     document.getElementById('userName').textContent = u.name || u.email;
   });
 
+  async function unlockMonth() {
+    if (!confirm(`לבטל את נעילת ${MONTHS_HE[currentMonth-1]} ${currentYear}? החיובים יחושבו מחדש לפי הנתונים הנוכחיים.`)) return;
+    const btn = document.getElementById('unlockBtn');
+    btn.disabled = true;
+    btn.textContent = 'מבטל...';
+    try {
+      const res = await fetch(`/api/billing/lock/${currentYear}/${currentMonth}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) { alert('שגיאה: ' + (data.error || '')); return; }
+      loadBilling();
+    } catch (e) {
+      alert('שגיאת רשת');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '🔓 בטל נעילה';
+    }
+  }
+
   async function lockMonth() {
     if (!confirm(`לנעול את ${MONTHS_HE[currentMonth-1]} ${currentYear}? הנתונים יוקפאו ולא ישתנו גם אם פגישות ישתנו.`)) return;
     const btn = document.getElementById('lockBtn');
@@ -226,6 +245,7 @@
     const isPast = currentYear < now.getFullYear() ||
       (currentYear === now.getFullYear() && currentMonth < now.getMonth() + 1);
     document.getElementById('lockBtn').style.display = isPast ? '' : 'none';
+    document.getElementById('unlockBtn').style.display = 'none';
 
     try {
       const res = await fetch(`/api/billing/summary/${currentYear}/${currentMonth}`);
@@ -266,6 +286,13 @@
       const totalAmount = therapists.reduce((s, t) => s + t.totalAmount, 0);
       document.getElementById('footTotal').textContent =
         '₪' + totalAmount.toLocaleString('he-IL', {maximumFractionDigits:0});
+
+      // הצג כפתור נעילה/ביטול נעילה לפי מצב snapshot
+      if (isPast) {
+        const isLocked = await fetch(`/api/billing/locked/${currentYear}/${currentMonth}`).then(r => r.json()).then(d => d.locked);
+        document.getElementById('lockBtn').style.display = isLocked ? 'none' : '';
+        document.getElementById('unlockBtn').style.display = isLocked ? '' : 'none';
+      }
     } catch (e) {
       tbody.innerHTML = '<tr><td colspan="5" style="color:#e53e3e;text-align:center;">שגיאה בטעינה</td></tr>';
     }
