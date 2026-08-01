@@ -129,44 +129,60 @@ function round2(n) {
 // מחזיר את החלק היחסי מהחודש שבו הססיה הייתה פעילה (0–1)
 // 0 = אין ססיה בחודש זה כלל, 1 = חודש מלא מכוסה
 async function getContractRatio(therapistId, year, month) {
-  const monthStart = new Date(year, month - 1, 1);
-  const monthEnd   = new Date(year, month, 1); // יום ראשון של החודש הבא (exclusive)
-  const daysInMonth = (monthEnd - monthStart) / 86400000;
+  const y = parseInt(year);
+  const m = parseInt(month);
+  const daysInMonth = new Date(y, m, 0).getDate();
 
-  const oneDayBeforeMonthStart = new Date(monthStart.getTime() - 86400000);
+  // כל ההשוואות הן string YYYY-MM-DD — ללא בעיות timezone
+  const monthStartStr = `${y}-${String(m).padStart(2, '0')}-01`;
+  // חודש דצמבר
+  const nextYear  = m === 12 ? y + 1 : y;
+  const nextMonth = m === 12 ? 1 : m + 1;
+  const monthEndStrFixed = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
+
   const result = await pool.query(
-    `SELECT start_date, end_date FROM slot_contracts
+    `SELECT TO_CHAR(start_date, 'YYYY-MM-DD') AS start_date,
+            TO_CHAR(end_date,   'YYYY-MM-DD') AS end_date
+     FROM slot_contracts
      WHERE therapist_id = $1
-       AND start_date < $3
-       AND end_date   >= $2
+       AND start_date < $3::date
+       AND end_date   >= ($2::date - INTERVAL '1 day')
      ORDER BY start_date`,
-    [therapistId, oneDayBeforeMonthStart.toISOString().slice(0, 10), monthEnd.toISOString().slice(0, 10)]
+    [therapistId, monthStartStr, monthEndStrFixed]
   );
 
   if (!result.rows.length) return 0;
 
-  // מיזוג כל החוזות לטווח רציף — כולל פער של יום אחד בין חוזה לחוזה
+  // מיזוג חוזות רצופים (כולל פער של יום אחד) לטווח אחד
   let mergedStart = null;
   let mergedEnd   = null;
   for (const row of result.rows) {
-    const contractStart = new Date(row.start_date);
-    const contractEnd   = new Date(row.end_date);
+    const cs = row.start_date;
+    const ce = row.end_date;
     if (mergedStart === null) {
-      mergedStart = contractStart;
-      mergedEnd   = contractEnd;
-    } else if (contractStart - mergedEnd <= 86400000) {
-      // חוזה חדש מתחיל תוך יום מסיום הקודם — מיזוג
-      if (contractEnd > mergedEnd) mergedEnd = contractEnd;
+      mergedStart = cs;
+      mergedEnd   = ce;
     } else {
-      // פער של יותר מיום — עצור (החוזות ממוינים לפי start_date)
-      break;
+      // בדוק אם הפער בין סיום הקודם לתחילת הנוכחי הוא לכל היותר יום אחד
+      const prevEnd  = new Date(mergedEnd + 'T00:00:00Z');
+      const nextStart = new Date(cs + 'T00:00:00Z');
+      if (nextStart - prevEnd <= 86400000) {
+        if (ce > mergedEnd) mergedEnd = ce;
+      } else {
+        break;
+      }
     }
   }
 
   if (mergedStart === null) return 0;
-  const clampedStart = mergedStart > monthStart ? mergedStart : monthStart;
-  const clampedEnd   = mergedEnd   < monthEnd   ? mergedEnd   : monthEnd;
-  const overlapDays  = Math.max(0, (clampedEnd - clampedStart) / 86400000);
+
+  const effectiveStart = mergedStart > monthStartStr ? mergedStart : monthStartStr;
+  const effectiveEnd   = mergedEnd   < monthEndStrFixed ? mergedEnd   : monthEndStrFixed;
+  if (effectiveEnd <= effectiveStart) return 0;
+
+  const startD = new Date(effectiveStart + 'T00:00:00Z');
+  const endD   = new Date(effectiveEnd   + 'T00:00:00Z');
+  const overlapDays = (endD - startD) / 86400000;
   return round2(overlapDays / daysInMonth);
 }
 
