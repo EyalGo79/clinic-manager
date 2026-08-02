@@ -106,10 +106,23 @@ router.put('/:id', isAdmin, async (req, res) => {
   }
 });
 
-// DELETE /api/therapists/:id — מחיקה רכה (active = false)
+// DELETE /api/therapists/:id — מחיקה רכה (toggle active)
 router.delete('/:id', isAdmin, async (req, res) => {
   try {
-    await pool.query('UPDATE therapists SET active = false WHERE id = $1', [req.params.id]);
+    const current = await pool.query('SELECT active FROM therapists WHERE id = $1', [req.params.id]);
+    if (!current.rows[0]) return res.status(404).json({ error: 'לא נמצא' });
+    const newActive = !current.rows[0].active;
+    await pool.query('UPDATE therapists SET active = $1 WHERE id = $2', [newActive, req.params.id]);
+    res.json({ success: true, active: newActive });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/therapists/:id/permanent — מחיקה קשיחה
+router.delete('/:id/permanent', isAdmin, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM therapists WHERE id = $1', [req.params.id]);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

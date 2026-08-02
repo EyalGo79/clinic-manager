@@ -187,7 +187,8 @@
         <td>${t.active ? '<span class="badge badge-green">פעיל</span>' : '<span class="badge badge-red">לא פעיל</span>'}</td>
         <td>
           <button class="btn btn-ghost btn-sm" onclick="editTherapist(${t.id})">✏️ עריכה</button>
-          <button class="btn btn-danger btn-sm" onclick="deactivate(${t.id})" ${!t.active ? 'disabled' : ''}>🚫</button>
+          <button class="btn btn-ghost btn-sm" onclick="toggleActive(${t.id}, ${t.active})" title="${t.active ? 'השבת מטפל' : 'הפעל מטפל'}">${t.active ? '🚫' : '✅'}</button>
+          <button class="btn btn-danger btn-sm" onclick="permanentDelete(${t.id}, '${t.name.replace(/'/g, "\\'")}')" title="מחיקה קבועה">🗑️</button>
         </td>
       </tr>
     `).join('');
@@ -257,11 +258,25 @@
     }
   }
 
-  async function deactivate(id) {
-    if (!confirm('האם לבטל את פעילות המטפל?')) return;
+  async function toggleActive(id, currentlyActive) {
+    const msg = currentlyActive ? 'להשבית את המטפל?' : 'להפעיל מחדש את המטפל?';
+    if (!confirm(msg)) return;
     try {
-      await fetch(`/api/therapists/${id}`, { method: 'DELETE' });
-      showAlert('alertBox', 'המטפל הועבר לסטטוס לא פעיל', 'success');
+      const res = await fetch(`/api/therapists/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      showAlert('alertBox', data.active ? 'המטפל הופעל מחדש' : 'המטפל הועבר לסטטוס לא פעיל', 'success');
+      loadTherapists();
+    } catch (e) {
+      showAlert('alertBox', 'שגיאה', 'error');
+    }
+  }
+
+  async function permanentDelete(id, name) {
+    if (!confirm(`למחוק לצמיתות את "${name}"? פעולה זו אינה הפיכה.`)) return;
+    try {
+      const res = await fetch(`/api/therapists/${id}/permanent`, { method: 'DELETE' });
+      if (!res.ok) { showAlert('alertBox', 'שגיאה במחיקה', 'error'); return; }
+      showAlert('alertBox', 'המטפל נמחק לצמיתות', 'success');
       loadTherapists();
     } catch (e) {
       showAlert('alertBox', 'שגיאה', 'error');
