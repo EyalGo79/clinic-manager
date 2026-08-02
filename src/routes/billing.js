@@ -5,19 +5,16 @@ const { isAdmin, isAdminOrTherapist } = require('../middleware/auth');
 
 // שלוף slots פעילים לחודש נתון (מסנן לפי end_date אם קיים)
 async function fetchActiveSlots(therapistId, year, month) {
-  // last day of month as YYYY-MM-DD (first day of next month)
   const y = parseInt(year);
   const m = parseInt(month);
-  const nextYear  = m === 12 ? y + 1 : y;
-  const nextMonth = m === 12 ? 1 : m + 1;
-  const monthEnd = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
+  const monthStart = `${y}-${String(m).padStart(2, '0')}-01`;
   const result = await pool.query(
     `SELECT day_of_week, start_time, end_time
      FROM therapist_slots
      WHERE therapist_id = $1
        AND active = true
        AND (end_date IS NULL OR end_date >= $2)`,
-    [therapistId, monthEnd]
+    [therapistId, monthStart]
   );
   return result.rows;
 }
