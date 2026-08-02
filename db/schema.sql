@@ -106,6 +106,9 @@ CREATE TABLE IF NOT EXISTS slot_contracts (
   created_at TIMESTAMP DEFAULT NOW()
 );
 
+-- תאריך סיום אופציונלי לשעת ססיה (NULL = פעיל לפי תאריך סיום הססיה הגלובלי)
+ALTER TABLE therapist_slots ADD COLUMN IF NOT EXISTS end_date DATE;
+
 -- אינדקסים
 CREATE INDEX IF NOT EXISTS idx_slot_contracts_therapist ON slot_contracts(therapist_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_therapist ON sessions(therapist_id);

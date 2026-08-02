@@ -146,7 +146,7 @@
           <strong style="font-size:14px;">שעות ססיה שבועיות</strong>
         </div>
         <div id="slotsList" style="margin-bottom:10px;font-size:13px;min-height:24px;"></div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;align-items:end;">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:8px;align-items:end;">
           <div class="form-group" style="margin:0;">
             <label style="font-size:12px;">יום</label>
             <select class="form-control" id="sDay" style="font-size:13px;">
@@ -166,6 +166,10 @@
           <div class="form-group" style="margin:0;">
             <label style="font-size:12px;">שעת סיום</label>
             <input type="time" class="form-control" id="sEnd" style="font-size:13px;">
+          </div>
+          <div class="form-group" style="margin:0;">
+            <label style="font-size:12px;">תאריך סיום (ריק = לפי ססיה)</label>
+            <input type="date" class="form-control" id="sEndDate" style="font-size:13px;">
           </div>
           <button class="btn btn-primary btn-sm" onclick="addSlot()" style="margin-bottom:0;" id="addSlotBtn">+ הוסף</button>
         </div>
@@ -294,14 +298,19 @@
       container.innerHTML = '<div style="color:#718096;font-style:italic;">אין שעות ססיה מוגדרות</div>';
       return;
     }
-    container.innerHTML = slots.map(s => `
+    container.innerHTML = slots.map(s => {
+      const endDateStr = s.end_date
+        ? `<span style="color:#e53e3e;font-size:11px;margin-right:4px;">עד ${new Date(s.end_date).toLocaleDateString('he-IL', {day:'numeric',month:'numeric',year:'numeric'})}</span>`
+        : '';
+      return `
       <div style="display:flex;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid #f0f4f8;">
         <span style="font-weight:500;min-width:48px;">${DAY_NAMES[s.day_of_week]}</span>
         <span>${s.start_time.slice(0,5)} – ${s.end_time.slice(0,5)}</span>
+        ${endDateStr}
         <button class="btn btn-danger btn-sm" style="margin-right:auto;padding:2px 8px;"
           onclick="deleteSlot(${therapistId}, ${s.id})">✕</button>
-      </div>
-    `).join('');
+      </div>`;
+    }).join('');
   }
 
   function refreshWeeklyStats(slots) {
@@ -350,6 +359,7 @@
     const day_of_week = parseInt(document.getElementById('sDay').value);
     const start_time  = document.getElementById('sStart').value;
     const end_time    = document.getElementById('sEnd').value;
+    const end_date    = document.getElementById('sEndDate').value || null;
     if (!start_time || !end_time) {
       showAlert('modalAlert', 'יש להזין שעת התחלה ושעת סיום', 'error'); return;
     }
@@ -360,11 +370,12 @@
       const res = await fetch(`/api/therapists/${currentTherapistId}/slots`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ day_of_week, start_time, end_time }),
+        body: JSON.stringify({ day_of_week, start_time, end_time, end_date }),
       });
       if (!res.ok) { const d = await res.json(); showAlert('modalAlert', d.error || 'שגיאה', 'error'); return; }
       document.getElementById('sStart').value = '';
       document.getElementById('sEnd').value = '';
+      document.getElementById('sEndDate').value = '';
       loadSlots(currentTherapistId);
     } catch { showAlert('modalAlert', 'שגיאת רשת', 'error'); }
   }
@@ -409,6 +420,7 @@
     document.getElementById('fNotes').value = c ? (c.notes || '') : '';
     document.getElementById('sStart').value = '';
     document.getElementById('sEnd').value = '';
+    document.getElementById('sEndDate').value = '';
     currentTherapistId = c ? c.therapist_id : null;
     document.getElementById('addSlotBtn').disabled = !currentTherapistId;
     if (currentTherapistId) {

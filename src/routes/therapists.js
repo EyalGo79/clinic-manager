@@ -120,7 +120,7 @@ router.delete('/:id', isAdmin, async (req, res) => {
 router.get('/:id/slots', isAdmin, async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT id, day_of_week, start_time, end_time, active FROM therapist_slots WHERE therapist_id = $1 ORDER BY day_of_week, start_time',
+      'SELECT id, day_of_week, start_time, end_time, active, end_date FROM therapist_slots WHERE therapist_id = $1 ORDER BY day_of_week, start_time',
       [req.params.id]
     );
     res.json(result.rows);
@@ -131,16 +131,16 @@ router.get('/:id/slots', isAdmin, async (req, res) => {
 
 // POST /api/therapists/:id/slots
 router.post('/:id/slots', isAdmin, async (req, res) => {
-  const { day_of_week, start_time, end_time } = req.body;
+  const { day_of_week, start_time, end_time, end_date } = req.body;
   if (day_of_week === undefined || !start_time || !end_time) {
     return res.status(400).json({ error: 'יום, שעת התחלה ושעת סיום הם שדות חובה' });
   }
   try {
     const result = await pool.query(
-      `INSERT INTO therapist_slots (therapist_id, day_of_week, start_time, end_time)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, day_of_week, start_time, end_time, active`,
-      [req.params.id, day_of_week, start_time, end_time]
+      `INSERT INTO therapist_slots (therapist_id, day_of_week, start_time, end_time, end_date)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, day_of_week, start_time, end_time, active, end_date`,
+      [req.params.id, day_of_week, start_time, end_time, end_date || null]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {

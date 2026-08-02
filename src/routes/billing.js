@@ -3,6 +3,25 @@ const router = express.Router();
 const pool = require('../config/db');
 const { isAdmin, isAdminOrTherapist } = require('../middleware/auth');
 
+// שלוף slots פעילים לחודש נתון (מסנן לפי end_date אם קיים)
+async function fetchActiveSlots(therapistId, year, month) {
+  // last day of month as YYYY-MM-DD (first day of next month)
+  const y = parseInt(year);
+  const m = parseInt(month);
+  const nextYear  = m === 12 ? y + 1 : y;
+  const nextMonth = m === 12 ? 1 : m + 1;
+  const monthEnd = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
+  const result = await pool.query(
+    `SELECT day_of_week, start_time, end_time
+     FROM therapist_slots
+     WHERE therapist_id = $1
+       AND active = true
+       AND (end_date IS NULL OR end_date >= $2)`,
+    [therapistId, monthEnd]
+  );
+  return result.rows;
+}
+
 // מדרגות חיוב — נטענות מה-DB
 async function fetchTiers() {
   const result = await pool.query(
@@ -222,7 +241,7 @@ async function getSnapshot(therapistId, year, month) {
 
 // צור snapshot ושמור ב-invoices (לא דורס קיים)
 async function createSnapshot(therapistId, year, month) {
-  const [sessionsRes, therapistRes, slotsRes, adjRes, tiers] = await Promise.all([
+  const [sessionsRes, therapistRes, adjRes, tiers] = await Promise.all([
     pool.query(
       `SELECT start_time, end_time,
               EXTRACT(EPOCH FROM (COALESCE(original_end_time, end_time) - start_time)) / 3600 AS hours
@@ -235,14 +254,14 @@ async function createSnapshot(therapistId, year, month) {
       [therapistId, year, month]
     ),
     pool.query('SELECT slot_rate FROM therapists WHERE id = $1', [therapistId]),
-    pool.query('SELECT day_of_week, start_time, end_time FROM therapist_slots WHERE therapist_id = $1 AND active = true', [therapistId]),
     pool.query('SELECT type, value FROM billing_adjustments WHERE therapist_id = $1 AND year = $2 AND month = $3', [therapistId, year, month]),
     fetchTiers(),
   ]);
 
   const { slot_rate } = therapistRes.rows[0] || {};
+  const slotsRows = await fetchActiveSlots(therapistId, year, month);
   const contractRatio = await getContractRatio(therapistId, year, month);
-  const billing = calculateBilling(sessionsRes.rows, slotsRes.rows, slot_rate, tiers, contractRatio);
+  const billing = calculateBilling(sessionsRes.rows, slotsRows, slot_rate, tiers, contractRatio);
 
   const adjs = adjRes.rows;
   const creditHours = adjs.filter(a => a.type === 'credit_hours').reduce((s, a) => s + parseFloat(a.value), 0);
@@ -316,22 +335,20 @@ router.post('/lock/:year/:month', isAdmin, async (req, res) => {
       fetchTiers(),
     ]);
     const results = await Promise.all(therapistsRes.rows.map(async (t) => {
-      const [sessionsRes, slotsRes] = await Promise.all([
-        pool.query(
-          `SELECT start_time, end_time,
-                  EXTRACT(EPOCH FROM (COALESCE(original_end_time, end_time) - start_time)) / 3600 AS hours
-           FROM sessions
-           WHERE therapist_id = $1
-             AND EXTRACT(YEAR FROM start_time AT TIME ZONE 'Asia/Jerusalem') = $2
-             AND EXTRACT(MONTH FROM start_time AT TIME ZONE 'Asia/Jerusalem') = $3
-             AND status IN ('confirmed', 'cancelled_charged')
-             AND cancellation_waived = false`,
-          [t.id, year, month]
-        ),
-        pool.query('SELECT day_of_week, start_time, end_time FROM therapist_slots WHERE therapist_id = $1 AND active = true', [t.id]),
-      ]);
+      const sessionsRes = await pool.query(
+        `SELECT start_time, end_time,
+                EXTRACT(EPOCH FROM (COALESCE(original_end_time, end_time) - start_time)) / 3600 AS hours
+         FROM sessions
+         WHERE therapist_id = $1
+           AND EXTRACT(YEAR FROM start_time AT TIME ZONE 'Asia/Jerusalem') = $2
+           AND EXTRACT(MONTH FROM start_time AT TIME ZONE 'Asia/Jerusalem') = $3
+           AND status IN ('confirmed', 'cancelled_charged')
+           AND cancellation_waived = false`,
+        [t.id, year, month]
+      );
+      const slotsRows = await fetchActiveSlots(t.id, year, month);
       const contractRatio = await getContractRatio(t.id, year, month);
-      const billing = calculateBilling(sessionsRes.rows, slotsRes.rows, t.slot_rate, tiers, contractRatio);
+      const billing = calculateBilling(sessionsRes.rows, slotsRows, t.slot_rate, tiers, contractRatio);
       await pool.query(
         `INSERT INTO invoices
            (therapist_id, year, month, total_hours, total_amount, rate_per_hour,
@@ -375,27 +392,7 @@ router.get('/summary/:year/:month', isAdmin, async (req, res) => {
             billing = invoiceToBilling(snapshot);
           } else {
             // אין snapshot — חישוב חי
-            const [sessionsRes, slotsRes] = await Promise.all([
-              pool.query(
-                `SELECT start_time, end_time,
-                        EXTRACT(EPOCH FROM (COALESCE(original_end_time, end_time) - start_time)) / 3600 AS hours
-                 FROM sessions
-                 WHERE therapist_id = $1
-                   AND EXTRACT(YEAR FROM start_time AT TIME ZONE 'Asia/Jerusalem') = $2
-                   AND EXTRACT(MONTH FROM start_time AT TIME ZONE 'Asia/Jerusalem') = $3
-                   AND status IN ('confirmed', 'cancelled_charged')
-                   AND cancellation_waived = false`,
-                [t.id, year, month]
-              ),
-              pool.query('SELECT day_of_week, start_time, end_time FROM therapist_slots WHERE therapist_id = $1 AND active = true', [t.id]),
-            ]);
-            const ratio1 = await getContractRatio(t.id, year, month);
-            billing = calculateBilling(sessionsRes.rows, slotsRes.rows, t.slot_rate, tiers, ratio1);
-          }
-        } else {
-          // חודש נוכחי — חישוב חי
-          const [sessionsRes, slotsRes] = await Promise.all([
-            pool.query(
+            const sessionsRes = await pool.query(
               `SELECT start_time, end_time,
                       EXTRACT(EPOCH FROM (COALESCE(original_end_time, end_time) - start_time)) / 3600 AS hours
                FROM sessions
@@ -405,14 +402,27 @@ router.get('/summary/:year/:month', isAdmin, async (req, res) => {
                  AND status IN ('confirmed', 'cancelled_charged')
                  AND cancellation_waived = false`,
               [t.id, year, month]
-            ),
-            pool.query(
-              'SELECT day_of_week, start_time, end_time FROM therapist_slots WHERE therapist_id = $1 AND active = true',
-              [t.id]
-            ),
-          ]);
+            );
+            const slotsRows1 = await fetchActiveSlots(t.id, year, month);
+            const ratio1 = await getContractRatio(t.id, year, month);
+            billing = calculateBilling(sessionsRes.rows, slotsRows1, t.slot_rate, tiers, ratio1);
+          }
+        } else {
+          // חודש נוכחי — חישוב חי
+          const sessionsRes = await pool.query(
+            `SELECT start_time, end_time,
+                    EXTRACT(EPOCH FROM (COALESCE(original_end_time, end_time) - start_time)) / 3600 AS hours
+             FROM sessions
+             WHERE therapist_id = $1
+               AND EXTRACT(YEAR FROM start_time AT TIME ZONE 'Asia/Jerusalem') = $2
+               AND EXTRACT(MONTH FROM start_time AT TIME ZONE 'Asia/Jerusalem') = $3
+               AND status IN ('confirmed', 'cancelled_charged')
+               AND cancellation_waived = false`,
+            [t.id, year, month]
+          );
+          const slotsRows2 = await fetchActiveSlots(t.id, year, month);
           const ratio2 = await getContractRatio(t.id, year, month);
-          billing = calculateBilling(sessionsRes.rows, slotsRes.rows, t.slot_rate, tiers, ratio2);
+          billing = calculateBilling(sessionsRes.rows, slotsRows2, t.slot_rate, tiers, ratio2);
           await ensureMonthlyDiscount(t.id, year, month, t.monthly_discount);
         }
 
@@ -456,7 +466,7 @@ router.get('/:therapistId/:year/:month', isAdminOrTherapist, async (req, res) =>
     if (!therapistResult.rows[0]) return res.status(404).json({ error: 'מטפל לא נמצא' });
 
     // שלוף sessions תמיד (לצורך תצוגת רשימת הפגישות)
-    const [sessionsRes, slotsRes] = await Promise.all([
+    const [sessionsRes, allSlotsRes] = await Promise.all([
       pool.query(
         `SELECT id, start_time, end_time, original_end_time, status,
                 EXTRACT(EPOCH FROM (COALESCE(original_end_time, end_time) - start_time)) / 3600 AS hours
@@ -470,13 +480,16 @@ router.get('/:therapistId/:year/:month', isAdminOrTherapist, async (req, res) =>
         [therapistId, year, month]
       ),
       pool.query(
-        'SELECT id, day_of_week, start_time, end_time FROM therapist_slots WHERE therapist_id = $1 AND active = true ORDER BY day_of_week, start_time',
+        'SELECT id, day_of_week, start_time, end_time, end_date FROM therapist_slots WHERE therapist_id = $1 AND active = true ORDER BY day_of_week, start_time',
         [therapistId]
       ),
     ]);
 
+    // slots פעילים לחודש זה (מסוננים לפי end_date)
+    const activeSlotsForMonth = await fetchActiveSlots(therapistId, year, month);
+
     let billing;
-    let frozenSlots = slotsRes.rows;
+    let frozenSlots = activeSlotsForMonth;
 
     if (isPastMonth(year, month)) {
       const snapshot = await getSnapshot(therapistId, year, month);
@@ -485,13 +498,13 @@ router.get('/:therapistId/:year/:month', isAdminOrTherapist, async (req, res) =>
       } else {
         const { slot_rate, monthly_discount } = therapistResult.rows[0];
         const ratio = await getContractRatio(therapistId, year, month);
-        billing = calculateBilling(sessionsRes.rows, slotsRes.rows, slot_rate, tiers, ratio);
+        billing = calculateBilling(sessionsRes.rows, activeSlotsForMonth, slot_rate, tiers, ratio);
         await ensureMonthlyDiscount(therapistId, year, month, monthly_discount);
       }
     } else {
       const { slot_rate, monthly_discount } = therapistResult.rows[0];
       const ratio = await getContractRatio(therapistId, year, month);
-      billing = calculateBilling(sessionsRes.rows, slotsRes.rows, slot_rate, tiers, ratio);
+      billing = calculateBilling(sessionsRes.rows, activeSlotsForMonth, slot_rate, tiers, ratio);
       await ensureMonthlyDiscount(therapistId, year, month, monthly_discount);
     }
 
@@ -510,7 +523,7 @@ router.get('/:therapistId/:year/:month', isAdminOrTherapist, async (req, res) =>
       therapist: therapistResult.rows[0],
       year: parseInt(year),
       month: parseInt(month),
-      slots: frozenSlots,
+      slots: allSlotsRes.rows,
       sessions,
       isSnapshot: isPastMonth(year, month),
       ...billing,
@@ -574,7 +587,7 @@ router.delete('/adjustments/:adjId', isAdmin, async (req, res) => {
 router.post('/:therapistId/:year/:month/save', isAdmin, async (req, res) => {
   const { therapistId, year, month } = req.params;
   try {
-    const [sessionsRes, therapistRes, slotsRes, tiers] = await Promise.all([
+    const [sessionsRes, therapistRes, tiers] = await Promise.all([
       pool.query(
         `SELECT start_time, end_time,
               EXTRACT(EPOCH FROM (COALESCE(original_end_time, end_time) - start_time)) / 3600 AS hours
@@ -587,13 +600,13 @@ router.post('/:therapistId/:year/:month/save', isAdmin, async (req, res) => {
         [therapistId, year, month]
       ),
       pool.query('SELECT slot_rate FROM therapists WHERE id = $1', [therapistId]),
-      pool.query('SELECT day_of_week, start_time, end_time FROM therapist_slots WHERE therapist_id = $1 AND active = true', [therapistId]),
       fetchTiers(),
     ]);
 
     const { slot_rate } = therapistRes.rows[0] || {};
+    const saveSlotsRows = await fetchActiveSlots(therapistId, year, month);
     const saveRatio = await getContractRatio(therapistId, year, month);
-    const billing = calculateBilling(sessionsRes.rows, slotsRes.rows, slot_rate, tiers, saveRatio);
+    const billing = calculateBilling(sessionsRes.rows, saveSlotsRows, slot_rate, tiers, saveRatio);
 
     const result = await pool.query(
       `INSERT INTO invoices
