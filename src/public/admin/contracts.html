@@ -53,6 +53,14 @@
       <div id="alertBox" class="alert"></div>
 
       <div class="card">
+        <div style="padding:12px 16px 0;display:flex;gap:16px;align-items:center;">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px;">
+            <input type="radio" name="showFilter" value="active" checked onchange="renderTable()"> פעילות ועתידיות
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px;">
+            <input type="radio" name="showFilter" value="all" onchange="renderTable()"> הכל
+          </label>
+        </div>
         <div class="table-wrap">
           <table>
             <thead><tr>
@@ -235,11 +243,13 @@
 
   function renderTable() {
     const tbody = document.getElementById('contractsTable');
-    if (!contracts.length) {
+    const filter = document.querySelector('input[name="showFilter"]:checked')?.value || 'active';
+    const visible = filter === 'all' ? contracts : contracts.filter(c => contractStatus(c) !== 'ended');
+    if (!visible.length) {
       tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#718096;padding:24px;">אין ססיות רשומות</td></tr>';
       return;
     }
-    tbody.innerHTML = contracts.map(c => {
+    tbody.innerHTML = visible.map(c => {
       const rateStr = c.slot_rate
         ? '₪' + parseFloat(c.slot_rate).toFixed(0)
         : '<span class="auto-rate">~₪' + (c.monthly_rate || 0).toFixed(0) + '</span>';
