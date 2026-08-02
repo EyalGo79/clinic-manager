@@ -299,18 +299,54 @@
       return;
     }
     container.innerHTML = slots.map(s => {
-      const endDateStr = s.end_date
+      const endDateVal = s.end_date ? s.end_date.slice(0, 10) : '';
+      const endDateLabel = s.end_date
         ? `<span style="color:#e53e3e;font-size:11px;margin-right:4px;">עד ${new Date(s.end_date).toLocaleDateString('he-IL', {day:'numeric',month:'numeric',year:'numeric'})}</span>`
         : '';
       return `
-      <div style="display:flex;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid #f0f4f8;">
-        <span style="font-weight:500;min-width:48px;">${DAY_NAMES[s.day_of_week]}</span>
-        <span>${s.start_time.slice(0,5)} – ${s.end_time.slice(0,5)}</span>
-        ${endDateStr}
-        <button class="btn btn-danger btn-sm" style="margin-right:auto;padding:2px 8px;"
-          onclick="deleteSlot(${therapistId}, ${s.id})">✕</button>
+      <div style="border-bottom:1px solid #f0f4f8;">
+        <div style="display:flex;align-items:center;gap:10px;padding:5px 0;">
+          <span style="font-weight:500;min-width:48px;">${DAY_NAMES[s.day_of_week]}</span>
+          <span>${s.start_time.slice(0,5)} – ${s.end_time.slice(0,5)}</span>
+          ${endDateLabel}
+          <button class="btn btn-ghost btn-sm" style="margin-right:auto;padding:2px 8px;"
+            onclick="toggleSlotEdit(${s.id})">✏️</button>
+          <button class="btn btn-danger btn-sm" style="padding:2px 8px;"
+            onclick="deleteSlot(${therapistId}, ${s.id})">✕</button>
+        </div>
+        <div id="slotEdit_${s.id}" style="display:none;padding:6px 0 8px 0;display:none;">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <label style="font-size:12px;color:#4a5568;">תאריך סיום:</label>
+            <input type="date" id="slotEndDate_${s.id}" value="${endDateVal}"
+              style="font-size:13px;padding:3px 6px;border:1px solid #cbd5e0;border-radius:4px;">
+            <button class="btn btn-primary btn-sm" onclick="saveSlotEndDate(${therapistId}, ${s.id})">שמור</button>
+            <button class="btn btn-ghost btn-sm" onclick="toggleSlotEdit(${s.id})">ביטול</button>
+          </div>
+        </div>
       </div>`;
     }).join('');
+  }
+
+  function toggleSlotEdit(slotId) {
+    const el = document.getElementById(`slotEdit_${slotId}`);
+    el.style.display = el.style.display === 'none' ? 'block' : 'none';
+  }
+
+  async function saveSlotEndDate(therapistId, slotId) {
+    const end_date = document.getElementById(`slotEndDate_${slotId}`).value || null;
+    try {
+      const res = await fetch(`/api/therapists/${therapistId}/slots/${slotId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ end_date }),
+      });
+      if (!res.ok) { const d = await res.json(); showAlert('modalAlert', d.error || 'שגיאה', 'error'); return; }
+      const data = await res.json();
+      loadSlots(therapistId);
+      if (data.cancelledSessions > 0) {
+        showAlert('modalAlert', `${data.cancelledSessions} פגישות בוטלו אוטומטית לאחר תאריך הסיום.`, 'success');
+      }
+    } catch { showAlert('modalAlert', 'שגיאת רשת', 'error'); }
   }
 
   function refreshWeeklyStats(slots) {

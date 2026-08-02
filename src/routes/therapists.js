@@ -171,6 +171,47 @@ router.post('/:id/slots', isAdmin, async (req, res) => {
   }
 });
 
+// PATCH /api/therapists/:id/slots/:slotId — עדכון תאריך סיום לשעה קיימת
+router.patch('/:id/slots/:slotId', isAdmin, async (req, res) => {
+  const { end_date } = req.body;
+  try {
+    const existing = await pool.query(
+      'SELECT id, day_of_week FROM therapist_slots WHERE id = $1 AND therapist_id = $2 AND active = true',
+      [req.params.slotId, req.params.id]
+    );
+    if (!existing.rows[0]) return res.status(404).json({ error: 'לא נמצא' });
+
+    const { day_of_week } = existing.rows[0];
+    await pool.query(
+      'UPDATE therapist_slots SET end_date = $1 WHERE id = $2',
+      [end_date || null, req.params.slotId]
+    );
+
+    let cancelledCount = 0;
+    if (end_date) {
+      const cancelled = await pool.query(
+        `UPDATE sessions
+         SET status = 'cancelled', cancelled_at = NOW()
+         WHERE therapist_id = $1
+           AND status = 'confirmed'
+           AND start_time > $2
+           AND EXTRACT(DOW FROM start_time AT TIME ZONE 'Asia/Jerusalem') = $3
+         RETURNING id, google_event_id`,
+        [req.params.id, end_date, day_of_week]
+      );
+      cancelledCount = cancelled.rowCount;
+      const { deleteGoogleEvent } = require('./calendar');
+      for (const s of cancelled.rows) {
+        if (s.google_event_id) deleteGoogleEvent(s.google_event_id);
+      }
+    }
+
+    res.json({ success: true, cancelledSessions: cancelledCount });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // DELETE /api/therapists/:id/slots/:slotId
 router.delete('/:id/slots/:slotId', isAdmin, async (req, res) => {
   try {
