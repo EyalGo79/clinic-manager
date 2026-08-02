@@ -373,10 +373,14 @@
         body: JSON.stringify({ day_of_week, start_time, end_time, end_date }),
       });
       if (!res.ok) { const d = await res.json(); showAlert('modalAlert', d.error || 'שגיאה', 'error'); return; }
+      const data = await res.json();
       document.getElementById('sStart').value = '';
       document.getElementById('sEnd').value = '';
       document.getElementById('sEndDate').value = '';
       loadSlots(currentTherapistId);
+      if (data.cancelledSessions > 0) {
+        showAlert('modalAlert', `השעה נוספה. ${data.cancelledSessions} פגישות בוטלו אוטומטית לאחר תאריך הסיום.`, 'success');
+      }
     } catch { showAlert('modalAlert', 'שגיאת רשת', 'error'); }
   }
 

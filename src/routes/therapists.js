@@ -142,7 +142,30 @@ router.post('/:id/slots', isAdmin, async (req, res) => {
        RETURNING id, day_of_week, start_time, end_time, active, end_date`,
       [req.params.id, day_of_week, start_time, end_time, end_date || null]
     );
-    res.status(201).json(result.rows[0]);
+
+    let cancelledCount = 0;
+    if (end_date) {
+      // בטל את כל הפגישות הבאות של המטפל באותו יום בשבוע שנופלות אחרי end_date
+      const cancelled = await pool.query(
+        `UPDATE sessions
+         SET status = 'cancelled', cancelled_at = NOW()
+         WHERE therapist_id = $1
+           AND status = 'confirmed'
+           AND start_time > $2
+           AND EXTRACT(DOW FROM start_time AT TIME ZONE 'Asia/Jerusalem') = $3
+         RETURNING id, google_event_id`,
+        [req.params.id, end_date, day_of_week]
+      );
+      cancelledCount = cancelled.rowCount;
+
+      // מחק מגוגל קאלנדר ברקע
+      const { deleteGoogleEvent } = require('./calendar');
+      for (const s of cancelled.rows) {
+        if (s.google_event_id) deleteGoogleEvent(s.google_event_id);
+      }
+    }
+
+    res.status(201).json({ ...result.rows[0], cancelledSessions: cancelledCount });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
