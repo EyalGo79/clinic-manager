@@ -211,7 +211,7 @@ router.post('/', isAdminOrTherapist, async (req, res) => {
 
 // PUT /api/sessions/:id — עדכון פגישה
 router.put('/:id', isAdminOrTherapist, async (req, res) => {
-  const { start_time, end_time, notes } = req.body;
+  const { start_time, end_time, notes, update_series } = req.body;
   try {
     const existing = await pool.query('SELECT * FROM sessions WHERE id = $1', [req.params.id]);
     if (!existing.rows[0]) return res.status(404).json({ error: 'לא נמצא' });
@@ -228,6 +228,54 @@ router.put('/:id', isAdminOrTherapist, async (req, res) => {
       return res.status(400).json({ error: 'שעת סיום חייבת להיות אחרי שעת התחלה' });
     }
 
+    // עדכון סדרה עתידית — שנה שעות על כל הפגישות מהיום הזה קדימה
+    if (update_series && session.series_id && start_time && end_time) {
+      const origStart = new Date(session.start_time);
+      const origEnd = new Date(session.end_time);
+      const newStartDate = new Date(start_time);
+      const newEndDate = new Date(end_time);
+      // חשב את ה-offset בשעות/דקות ביחס לפגישה המקורית
+      const startDiffMs = newStartDate - origStart;
+      const durationMs = newEndDate - newStartDate;
+
+      const futureRes = await pool.query(
+        `SELECT * FROM sessions WHERE series_id = $1 AND start_time >= $2 AND status = 'confirmed' ORDER BY start_time`,
+        [session.series_id, session.start_time]
+      );
+
+      for (const occ of futureRes.rows) {
+        const occNewStart = new Date(new Date(occ.start_time).getTime() + startDiffMs);
+        const occNewEnd = new Date(occNewStart.getTime() + durationMs);
+        const conflict = await getConflict(session.therapist_id, occNewStart, occNewEnd, occ.id);
+        if (conflict) {
+          const occDate = occNewStart.toLocaleDateString('he-IL', { timeZone: 'Asia/Jerusalem', weekday: 'long', day: 'numeric', month: 'long' });
+          return res.status(409).json({ error: `קונפליקט בתאריך ${occDate}: ${formatConflictError(conflict)}` });
+        }
+      }
+
+      for (const occ of futureRes.rows) {
+        const occNewStart = new Date(new Date(occ.start_time).getTime() + startDiffMs);
+        const occNewEnd = new Date(occNewStart.getTime() + durationMs);
+        await pool.query(
+          `UPDATE sessions SET start_time = $1, end_time = $2, notes = COALESCE($3, notes) WHERE id = $4`,
+          [occNewStart, occNewEnd, notes, occ.id]
+        );
+      }
+
+      // עדכן את האירוע החוזר בגוגל
+      const seriesRes = await pool.query(
+        `SELECT google_event_id FROM sessions WHERE series_id = $1 AND google_event_id IS NOT NULL LIMIT 1`,
+        [session.series_id]
+      );
+      const seriesGoogleId = seriesRes.rows[0]?.google_event_id;
+      const therapistRes2 = await pool.query('SELECT name FROM therapists WHERE id = $1', [session.therapist_id]);
+      if (seriesGoogleId) {
+        upsertGoogleEvent({ google_event_id: seriesGoogleId, start_time: newStart, end_time: newEnd, therapist_name: therapistRes2.rows[0]?.name });
+      }
+
+      return res.json({ updated: futureRes.rows.length });
+    }
+
     const conflict = await getConflict(session.therapist_id, newStart, newEnd, session.id);
     if (conflict) {
       return res.status(409).json({ error: formatConflictError(conflict) });
@@ -241,7 +289,6 @@ router.put('/:id', isAdminOrTherapist, async (req, res) => {
     const originalEnd = new Date(session.end_time);
     const newEndDate = new Date(newEnd);
     const isShorter = newEndDate < originalEnd;
-    // שמור original_end_time רק אם זה קיצור ברגע האחרון ועדיין לא שמרנו
     const keepOriginalEnd = isLate && isShorter && !session.original_end_time;
     const originalEndToStore = keepOriginalEnd ? session.end_time : session.original_end_time || null;
 

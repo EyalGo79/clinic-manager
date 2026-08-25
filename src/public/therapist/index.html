@@ -142,6 +142,11 @@
         <input type="date" class="form-control" id="sRepeatUntil">
       </div>
     </div>
+    <div id="updateSeriesGroup" style="display:none;" class="form-group">
+      <label style="display:flex;align-items:center;gap:8px;color:#2b6cb0;font-weight:600;cursor:pointer;">
+        <input type="checkbox" id="updateSeriesCheck"> עדכן גם את כל הפגישות העתידיות בסדרה
+      </label>
+    </div>
     <div id="sessionModalAlert" class="alert"></div>
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:12px;">
       <button class="btn btn-danger btn-sm" id="cancelSessionBtn" style="display:none;margin-left:auto;" onclick="requestCancel()">בטל פגישה</button>
@@ -221,6 +226,8 @@
     document.getElementById('sRepeatUntil').value = '';
     document.getElementById('recurringExtra').style.display = 'none';
     document.getElementById('recurringSection').style.display = '';
+    document.getElementById('updateSeriesGroup').style.display = 'none';
+    document.getElementById('updateSeriesCheck').checked = false;
     document.getElementById('cancelSessionBtn').style.display = 'none';
     document.getElementById('saveSessionBtn').style.display = '';
     document.getElementById('sessionModalAlert').className = 'alert';
@@ -242,6 +249,8 @@
     document.getElementById('sRepeatUntil').value = '';
     document.getElementById('recurringExtra').style.display = 'none';
     document.getElementById('recurringSection').style.display = 'none';
+    document.getElementById('updateSeriesGroup').style.display = s.series_id ? 'block' : 'none';
+    document.getElementById('updateSeriesCheck').checked = false;
     document.getElementById('cancelSessionBtn').style.display = '';
     document.getElementById('saveSessionBtn').style.display = '';
     document.getElementById('sessionModalAlert').className = 'alert';
@@ -377,8 +386,9 @@
     try {
       const url = editId ? `/api/sessions/${editId}` : '/api/sessions';
       const method = editId ? 'PUT' : 'POST';
+      const updateSeries = editId ? document.getElementById('updateSeriesCheck').checked : false;
       const body = editId
-        ? { start_time, end_time, notes }
+        ? { start_time, end_time, notes, update_series: updateSeries }
         : { therapist_id: myId, start_time, end_time, notes };
 
       // קיצור ברגע האחרון — אם עורכים ביום הפגישה ומקצרים אותה

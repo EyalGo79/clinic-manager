@@ -85,6 +85,7 @@
     <button class="modal-close" onclick="closeModal()">✕</button>
     <h3 id="modalTitle">פגישה חדשה</h3>
     <input type="hidden" id="editSessionId">
+    <input type="hidden" id="editSeriesId">
 
     <div class="form-group">
       <label>מטפל *</label>
@@ -113,6 +114,11 @@
         <label>עד תאריך</label>
         <input type="date" class="form-control" id="fRepeatUntil">
       </div>
+    </div>
+    <div id="updateSeriesGroup" style="display:none;" class="form-group">
+      <label style="display:flex;align-items:center;gap:8px;color:#2b6cb0;font-weight:600;cursor:pointer;">
+        <input type="checkbox" id="updateSeriesCheck"> עדכן גם את כל הפגישות העתידיות בסדרה
+      </label>
     </div>
     <div id="modalAlert" class="alert"></div>
 
@@ -406,6 +412,8 @@
     document.getElementById('fRecurring').checked = false;
     document.getElementById('recurringExtra').style.display = 'none';
     document.getElementById('recurringSection').style.display = '';
+    document.getElementById('updateSeriesGroup').style.display = 'none';
+    document.getElementById('updateSeriesCheck').checked = false;
     document.getElementById('cancelBtn').style.display = 'none';
     document.getElementById('saveBtn').style.display = '';
     hideAlert('modalAlert');
@@ -415,6 +423,7 @@
   function openEditModal(s) {
     document.getElementById('editSessionId').value = s.id;
     cancelingSeriesId = s.series_id || null;
+    document.getElementById('editSeriesId').value = s.series_id || '';
     document.getElementById('modalTitle').textContent = 'עריכת פגישה';
     document.getElementById('fTherapist').value = s.therapist_id;
     document.getElementById('fStart').value = toLocalDatetimeInput(s.start_time);
@@ -423,6 +432,8 @@
     document.getElementById('fRecurring').checked = false;
     document.getElementById('recurringExtra').style.display = 'none';
     document.getElementById('recurringSection').style.display = 'none';
+    document.getElementById('updateSeriesGroup').style.display = s.series_id ? 'block' : 'none';
+    document.getElementById('updateSeriesCheck').checked = false;
     endUserModified = true;
 
     const isCancelled = s.status === 'cancelled' || s.status === 'cancelled_charged';
@@ -470,10 +481,11 @@
     }
 
     try {
+      const updateSeries = document.getElementById('updateSeriesCheck').checked;
       const res = await fetch(id ? `/api/sessions/${id}` : '/api/sessions', {
         method: id ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify(id ? { ...body, update_series: updateSeries } : body),
       });
       const data = await res.json();
       if (!res.ok) { showAlert('modalAlert', data.error || 'שגיאה', 'error'); return; }
