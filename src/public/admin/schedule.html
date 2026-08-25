@@ -92,15 +92,27 @@
     </div>
     <div class="form-group">
       <label>תאריך ושעת התחלה *</label>
-      <input type="datetime-local" class="form-control" id="fStart">
+      <input type="datetime-local" class="form-control" id="fStart" oninput="onStartChange()">
     </div>
     <div class="form-group">
       <label>תאריך ושעת סיום *</label>
-      <input type="datetime-local" class="form-control" id="fEnd">
+      <input type="datetime-local" class="form-control" id="fEnd" oninput="endUserModified = true;">
     </div>
     <div class="form-group">
       <label>הערות</label>
       <textarea class="form-control" id="fNotes" rows="2"></textarea>
+    </div>
+    <div id="recurringSection">
+      <div class="form-group" style="margin-bottom:10px;">
+        <label style="display:flex;align-items:center;gap:8px;font-weight:600;cursor:pointer;">
+          <input type="checkbox" id="fRecurring" onchange="toggleRecurring()">
+          חזרה שבועית
+        </label>
+      </div>
+      <div id="recurringExtra" style="display:none;" class="form-group">
+        <label>עד תאריך</label>
+        <input type="date" class="form-control" id="fRepeatUntil">
+      </div>
     </div>
     <div id="modalAlert" class="alert"></div>
 
@@ -356,12 +368,34 @@
     return localStr + sign + hh + ':' + mm;
   }
 
+  let endUserModified = false;
+
+  function onStartChange() {
+    if (endUserModified) return;
+    const startVal = document.getElementById('fStart').value;
+    if (!startVal) return;
+    const startDate = new Date(startVal);
+    const endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
+    document.getElementById('fEnd').value = toLocalDatetimeInput(endDate.toISOString());
+  }
+
+  function toggleRecurring() {    const checked = document.getElementById('fRecurring').checked;
+    document.getElementById('recurringExtra').style.display = checked ? '' : 'none';
+  }
+
   function openNewModal() {
     document.getElementById('editSessionId').value = '';
     document.getElementById('modalTitle').textContent = 'פגישה חדשה';
-    document.getElementById('fStart').value = toLocalDatetimeInput(new Date().toISOString());
-    document.getElementById('fEnd').value = '';
+    endUserModified = false;
+    const defaultStart = new Date();
+    defaultStart.setSeconds(0, 0);
+    const defaultEnd = new Date(defaultStart.getTime() + 60 * 60 * 1000);
+    document.getElementById('fStart').value = toLocalDatetimeInput(defaultStart.toISOString());
+    document.getElementById('fEnd').value = toLocalDatetimeInput(defaultEnd.toISOString());
     document.getElementById('fNotes').value = '';
+    document.getElementById('fRecurring').checked = false;
+    document.getElementById('recurringExtra').style.display = 'none';
+    document.getElementById('recurringSection').style.display = '';
     document.getElementById('cancelBtn').style.display = 'none';
     document.getElementById('saveBtn').style.display = '';
     hideAlert('modalAlert');
@@ -375,6 +409,10 @@
     document.getElementById('fStart').value = toLocalDatetimeInput(s.start_time);
     document.getElementById('fEnd').value = toLocalDatetimeInput(s.end_time);
     document.getElementById('fNotes').value = s.notes || '';
+    document.getElementById('fRecurring').checked = false;
+    document.getElementById('recurringExtra').style.display = 'none';
+    document.getElementById('recurringSection').style.display = 'none';
+    endUserModified = true;
 
     const isCancelled = s.status === 'cancelled' || s.status === 'cancelled_charged';
     document.getElementById('cancelBtn').style.display = isCancelled ? 'none' : '';
@@ -387,6 +425,8 @@
 
   async function saveSession() {
     const id = document.getElementById('editSessionId').value;
+    const isRecurring = document.getElementById('fRecurring').checked;
+    const repeatUntil = document.getElementById('fRepeatUntil').value;
     const body = {
       therapist_id: parseInt(document.getElementById('fTherapist').value),
       start_time: localToISO(document.getElementById('fStart').value),
@@ -396,6 +436,28 @@
     if (!body.therapist_id || !body.start_time || !body.end_time) {
       showAlert('modalAlert', 'יש למלא את כל שדות החובה', 'error'); return;
     }
+
+    if (isRecurring && !id) {
+      if (!repeatUntil) {
+        showAlert('modalAlert', 'יש לבחור תאריך סיום לחזרה השבועית', 'error'); return;
+      }
+      try {
+        const res = await fetch('/api/sessions/recurring', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...body, repeat_until: repeatUntil }),
+        });
+        const data = await res.json();
+        if (!res.ok) { showAlert('modalAlert', data.error || 'שגיאה', 'error'); return; }
+        closeModal();
+        showAlert('alertBox', `נוצרו ${data.count} פגישות בהצלחה`, 'success');
+        loadEvents();
+      } catch (e) {
+        showAlert('modalAlert', 'שגיאת רשת', 'error');
+      }
+      return;
+    }
+
     try {
       const res = await fetch(id ? `/api/sessions/${id}` : '/api/sessions', {
         method: id ? 'PUT' : 'POST',

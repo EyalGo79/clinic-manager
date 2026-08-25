@@ -272,7 +272,10 @@ router.post('/recurring', isAdminOrTherapist, async (req, res) => {
   }
   const start = new Date(start_time);
   const end = new Date(end_time);
-  const until = new Date(repeat_until);
+  // repeat_until מגיע כתאריך בלבד ("YYYY-MM-DD") — מוסיפים סוף היום בשעון ישראל
+  const until = new Date(
+    repeat_until.length === 10 ? `${repeat_until}T23:59:59+03:00` : repeat_until
+  );
   if (start >= end) {
     return res.status(400).json({ error: 'שעת סיום חייבת להיות אחרי שעת התחלה' });
   }
