@@ -364,4 +364,62 @@ async function deleteGoogleEvent(googleEventId) {
   }
 }
 
-module.exports = { router, upsertGoogleEvent, deleteGoogleEvent };
+// יצירת אירוע חוזר שבועי בגוגל — מחזיר את ה-google_event_id של האירוע הראשי
+async function createRecurringGoogleEvent({ therapist_name, start_time, end_time, repeat_until }) {
+  try {
+    const oauth2Client = await getStoredOAuthClient();
+    if (!oauth2Client) return null;
+    const cal = google.calendar({ version: 'v3', auth: oauth2Client });
+    const calendarId = await getClinicCalendarId(cal);
+    if (!calendarId) return null;
+
+    // UNTIL בפורמט UTC YYYYMMDDTHHMMSSZ
+    const untilDate = new Date(repeat_until);
+    untilDate.setHours(23, 59, 59, 0);
+    const until = untilDate.toISOString().replace(/[-:]/g, '').replace('.000', '');
+
+    const eventBody = {
+      summary: therapist_name || 'פגישה',
+      start: { dateTime: new Date(start_time).toISOString(), timeZone: 'Asia/Jerusalem' },
+      end:   { dateTime: new Date(end_time).toISOString(),   timeZone: 'Asia/Jerusalem' },
+      recurrence: [`RRULE:FREQ=WEEKLY;UNTIL=${until}`],
+    };
+
+    const created = await cal.events.insert({ calendarId, resource: eventBody });
+    return created.data.id;
+  } catch (e) {
+    console.error('google calendar recurring create error:', e.message);
+    return null;
+  }
+}
+
+// ביטול occurrence בודד מתוך אירוע חוזר בגוגל
+async function cancelGoogleOccurrence(googleEventId, start_time) {
+  try {
+    const oauth2Client = await getStoredOAuthClient();
+    if (!oauth2Client) return;
+    const cal = google.calendar({ version: 'v3', auth: oauth2Client });
+    const calendarId = await getClinicCalendarId(cal);
+    if (!calendarId) return;
+
+    // originalStartTime = שעת ההתחלה של ה-occurrence הזה
+    const originalStart = new Date(start_time).toISOString();
+    await cal.events.patch({
+      calendarId,
+      eventId: googleEventId,
+      resource: { status: 'cancelled' },
+      // Google מזהה את ה-occurrence לפי eventId_originalStartTime
+    });
+    // Google API: כדי לבטל occurrence בודד, יש לעדכן את ה-instance
+    const instanceId = `${googleEventId}_${originalStart.replace(/[-:]/g, '').replace('.000Z', 'Z')}`;
+    await cal.events.patch({
+      calendarId,
+      eventId: instanceId,
+      resource: { status: 'cancelled' },
+    });
+  } catch (e) {
+    console.error('google calendar cancel occurrence error:', e.message);
+  }
+}
+
+module.exports = { router, upsertGoogleEvent, deleteGoogleEvent, createRecurringGoogleEvent, cancelGoogleOccurrence };

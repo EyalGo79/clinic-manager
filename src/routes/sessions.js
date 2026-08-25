@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/db');
 const { isAdmin, isAdminOrTherapist } = require('../middleware/auth');
-const { upsertGoogleEvent, deleteGoogleEvent } = require('./calendar');
+const { upsertGoogleEvent, deleteGoogleEvent, createRecurringGoogleEvent, cancelGoogleOccurrence } = require('./calendar');
 
 const BUFFER_MINUTES = 15; // רבע שעה מינימום בין פגישות של מטפלים שונים
 const SAME_THERAPIST_MIN_GAP_MINUTES = 90; // בין שני טיפולים של אותו מטפל באותו יום: 0 (צמוד) או ≥ 90 דק'
@@ -316,17 +316,23 @@ router.post('/recurring', isAdminOrTherapist, async (req, res) => {
   const therapistRes = await pool.query('SELECT name FROM therapists WHERE id = $1', [therapist_id]);
   const therapistName = therapistRes.rows[0]?.name;
 
+  // צור אירוע חוזר אחד בגוגל עבור כל הסדרה
+  const recurringGoogleId = await createRecurringGoogleEvent({
+    therapist_name: therapistName,
+    start_time: occurrences[0].start,
+    end_time: occurrences[0].end,
+    repeat_until: repeat_until,
+  });
+
   const inserted = [];
   for (const occ of occurrences) {
     const result = await pool.query(
-      `INSERT INTO sessions (therapist_id, start_time, end_time, notes, series_id)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO sessions (therapist_id, start_time, end_time, notes, series_id, google_event_id)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING *`,
-      [therapist_id, occ.start, occ.end, notes || null, seriesId]
+      [therapist_id, occ.start, occ.end, notes || null, seriesId, recurringGoogleId]
     );
-    const session = result.rows[0];
-    inserted.push(session);
-    upsertGoogleEvent({ ...session, therapist_name: therapistName });
+    inserted.push(result.rows[0]);
   }
 
   res.status(201).json({ count: inserted.length, series_id: seriesId, sessions: inserted });
@@ -368,9 +374,13 @@ router.post('/:id/cancel', isAdminOrTherapist, async (req, res) => {
       [newStatus, req.user.role === 'admin' && waive_charge ? true : false, req.params.id]
     );
 
-    // מחק מגוגל קאלנדר ברקע
+    // מחק/בטל מגוגל קאלנדר ברקע
     if (session.google_event_id) {
-      deleteGoogleEvent(session.google_event_id);
+      if (session.series_id) {
+        cancelGoogleOccurrence(session.google_event_id, session.start_time);
+      } else {
+        deleteGoogleEvent(session.google_event_id);
+      }
     }
 
     res.json({
