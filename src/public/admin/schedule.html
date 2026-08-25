@@ -328,7 +328,11 @@
       slotMaxTime: '23:30:00',
       height: isMobile ? 500 : 680,
       allDaySlot: false,
+      selectable: true,
+      selectMirror: true,
       eventClick: (info) => openEditModal(info.event.extendedProps),
+      dateClick: (info) => openNewModalAt(info.date),
+      select: (info) => openNewModalAt(info.start, info.end),
       eventDidMount: (info) => {
         const s = info.event.extendedProps;
         if (s.status === 'cancelled_charged') {
@@ -383,15 +387,15 @@
     document.getElementById('recurringExtra').style.display = checked ? '' : 'none';
   }
 
-  function openNewModal() {
+  function openNewModal() { openNewModalAt(new Date()); }
+
+  function openNewModalAt(start, end) {
     document.getElementById('editSessionId').value = '';
     document.getElementById('modalTitle').textContent = 'פגישה חדשה';
     endUserModified = false;
-    const defaultStart = new Date();
-    defaultStart.setSeconds(0, 0);
-    const defaultEnd = new Date(defaultStart.getTime() + 60 * 60 * 1000);
-    document.getElementById('fStart').value = toLocalDatetimeInput(defaultStart.toISOString());
-    document.getElementById('fEnd').value = toLocalDatetimeInput(defaultEnd.toISOString());
+    const endDate = end || new Date(start.getTime() + 60 * 60 * 1000);
+    document.getElementById('fStart').value = toLocalDatetimeInput(start.toISOString());
+    document.getElementById('fEnd').value = toLocalDatetimeInput(endDate.toISOString());
     document.getElementById('fNotes').value = '';
     document.getElementById('fRecurring').checked = false;
     document.getElementById('recurringExtra').style.display = 'none';
