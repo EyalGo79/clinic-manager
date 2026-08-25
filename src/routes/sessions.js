@@ -254,7 +254,10 @@ router.put('/:id', isAdminOrTherapist, async (req, res) => {
     );
     const updated = result.rows[0];
     const therapistRes = await pool.query('SELECT name FROM therapists WHERE id = $1', [session.therapist_id]);
-    upsertGoogleEvent({ ...updated, therapist_name: therapistRes.rows[0]?.name });
+    // עדכן גוגל רק אם יש google_event_id ישיר על הפגישה (לא סדרה)
+    if (updated.google_event_id) {
+      upsertGoogleEvent({ ...updated, therapist_name: therapistRes.rows[0]?.name });
+    }
     res.json(updated);
   } catch (err) {
     res.status(500).json({ error: err.message });
