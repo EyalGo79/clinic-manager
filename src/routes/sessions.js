@@ -270,6 +270,7 @@ router.post('/recurring', isAdminOrTherapist, async (req, res) => {
   if (req.user.role === 'therapist' && req.user.id !== parseInt(therapist_id)) {
     return res.status(403).json({ error: 'אין הרשאה' });
   }
+  try {
   const start = new Date(start_time);
   const end = new Date(end_time);
   // repeat_until מגיע כתאריך בלבד ("YYYY-MM-DD") — מוסיפים סוף היום בשעון ישראל
@@ -336,6 +337,9 @@ router.post('/recurring', isAdminOrTherapist, async (req, res) => {
   }
 
   res.status(201).json({ count: inserted.length, series_id: seriesId, sessions: inserted });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // POST /api/sessions/:id/cancel — ביטול פגישה (מנהל או מטפל שלו)
