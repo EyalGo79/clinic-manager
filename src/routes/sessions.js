@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/db');
 const { isAdmin, isAdminOrTherapist } = require('../middleware/auth');
-const { upsertGoogleEvent, deleteGoogleEvent, createRecurringGoogleEvent, cancelGoogleOccurrence } = require('./calendar');
+const { upsertGoogleEvent, deleteGoogleEvent, createRecurringGoogleEvent, cancelGoogleOccurrence, updateRecurringGoogleSeries } = require('./calendar');
 
 const BUFFER_MINUTES = 15; // רבע שעה מינימום בין פגישות של מטפלים שונים
 const SAME_THERAPIST_MIN_GAP_MINUTES = 90; // בין שני טיפולים של אותו מטפל באותו יום: 0 (צמוד) או ≥ 90 דק'
@@ -262,15 +262,29 @@ router.put('/:id', isAdminOrTherapist, async (req, res) => {
         );
       }
 
-      // עדכן את האירוע החוזר בגוגל
+      // עדכן גוגל — סיים את הסדרה הישנה וצור חדשה מהתאריך החדש
       const seriesRes = await pool.query(
         `SELECT google_event_id FROM sessions WHERE series_id = $1 AND google_event_id IS NOT NULL LIMIT 1`,
         [session.series_id]
       );
       const seriesGoogleId = seriesRes.rows[0]?.google_event_id;
       const therapistRes2 = await pool.query('SELECT name FROM therapists WHERE id = $1', [session.therapist_id]);
-      if (seriesGoogleId) {
-        upsertGoogleEvent({ google_event_id: seriesGoogleId, start_time: newStart, end_time: newEnd, therapist_name: therapistRes2.rows[0]?.name });
+      // מצא את התאריך האחרון בסדרה
+      const lastRes = await pool.query(
+        `SELECT start_time FROM sessions WHERE series_id = $1 AND status = 'confirmed' ORDER BY start_time DESC LIMIT 1`,
+        [session.series_id]
+      );
+      const lastOcc = lastRes.rows[0];
+      const newGoogleId = await updateRecurringGoogleSeries({
+        oldGoogleEventId: seriesGoogleId,
+        newStartTime: futureRes.rows[0] ? futureRes.rows[0].start_time : newStart,
+        newEndTime: new Date(new Date(futureRes.rows[0]?.start_time || newStart).getTime() + durationMs).toISOString(),
+        repeatUntil: lastOcc ? new Date(lastOcc.start_time).toISOString().slice(0, 10) : null,
+        therapistName: therapistRes2.rows[0]?.name,
+      });
+      // עדכן google_event_id על הפגישה הראשונה בסדרה העתידית
+      if (newGoogleId && futureRes.rows[0]) {
+        await pool.query('UPDATE sessions SET google_event_id = $1 WHERE id = $2', [newGoogleId, futureRes.rows[0].id]);
       }
 
       return res.json({ updated: futureRes.rows.length });

@@ -422,4 +422,37 @@ async function cancelGoogleOccurrence(googleEventId, start_time) {
   }
 }
 
-module.exports = { router, upsertGoogleEvent, deleteGoogleEvent, createRecurringGoogleEvent, cancelGoogleOccurrence };
+// עדכון סדרה חוזרת מתאריך מסוים: מסיים את הישנה ויוצר חדשה עם השעות החדשות
+async function updateRecurringGoogleSeries({ oldGoogleEventId, newStartTime, newEndTime, repeatUntil, therapistName }) {
+  try {
+    const oauth2Client = await getStoredOAuthClient();
+    if (!oauth2Client) return null;
+    const cal = google.calendar({ version: 'v3', auth: oauth2Client });
+    const calendarId = await getClinicCalendarId(cal);
+    if (!calendarId) return null;
+
+    // סיים את הסדרה הישנה יום לפני תאריך השינוי
+    if (oldGoogleEventId) {
+      try {
+        const existing = await cal.events.get({ calendarId, eventId: oldGoogleEventId });
+        const rrule = (existing.data.recurrence || []).find(r => r.startsWith('RRULE:'));
+        if (rrule) {
+          const dayBefore = new Date(new Date(newStartTime).getTime() - 24 * 60 * 60 * 1000);
+          const untilStr = dayBefore.toISOString().replace(/[-:]/g, '').replace('.000', '');
+          const newRrule = rrule.replace(/;?UNTIL=[^;]*/i, '') + `;UNTIL=${untilStr}`;
+          await cal.events.patch({ calendarId, eventId: oldGoogleEventId, resource: { recurrence: [newRrule] } });
+        }
+      } catch (e) {
+        console.error('google calendar end old series error:', e.message);
+      }
+    }
+
+    // צור סדרה חדשה
+    return await createRecurringGoogleEvent({ therapist_name: therapistName, start_time: newStartTime, end_time: newEndTime, repeat_until: repeatUntil });
+  } catch (e) {
+    console.error('google calendar update recurring series error:', e.message);
+    return null;
+  }
+}
+
+module.exports = { router, upsertGoogleEvent, deleteGoogleEvent, createRecurringGoogleEvent, cancelGoogleOccurrence, updateRecurringGoogleSeries };
