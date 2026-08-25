@@ -326,12 +326,14 @@ router.post('/recurring', isAdminOrTherapist, async (req, res) => {
   });
 
   const inserted = [];
-  for (const occ of occurrences) {
+  for (let i = 0; i < occurrences.length; i++) {
+    const occ = occurrences[i];
+    const googleId = i === 0 ? recurringGoogleId : null;
     const result = await pool.query(
       `INSERT INTO sessions (therapist_id, start_time, end_time, notes, series_id, google_event_id)
        VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING *`,
-      [therapist_id, occ.start, occ.end, notes || null, seriesId, recurringGoogleId]
+      [therapist_id, occ.start, occ.end, notes || null, seriesId, googleId]
     );
     inserted.push(result.rows[0]);
   }
@@ -379,12 +381,18 @@ router.post('/:id/cancel', isAdminOrTherapist, async (req, res) => {
     );
 
     // מחק/בטל מגוגל קאלנדר ברקע
-    if (session.google_event_id) {
-      if (session.series_id) {
-        cancelGoogleOccurrence(session.google_event_id, session.start_time);
-      } else {
-        deleteGoogleEvent(session.google_event_id);
-      }
+    if (session.series_id) {
+      // מצא את ה-google_event_id של הפגישה הראשונה בסדרה
+      const seriesRes = await pool.query(
+        `SELECT google_event_id FROM sessions
+         WHERE series_id = $1 AND google_event_id IS NOT NULL
+         LIMIT 1`,
+        [session.series_id]
+      );
+      const seriesGoogleId = seriesRes.rows[0]?.google_event_id;
+      if (seriesGoogleId) cancelGoogleOccurrence(seriesGoogleId, session.start_time);
+    } else if (session.google_event_id) {
+      deleteGoogleEvent(session.google_event_id);
     }
 
     res.json({
