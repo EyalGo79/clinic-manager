@@ -137,6 +137,11 @@
         <input type="checkbox" id="waiveCharge"> פטור מחיוב (ביטול חריג)
       </label>
     </div>
+    <div class="form-group" id="cancelSeriesGroup" style="display:none;">
+      <label style="display:flex;align-items:center;gap:8px;color:#c05621;font-weight:600;">
+        <input type="checkbox" id="cancelSeriesCheck"> בטל גם את כל הפגישות העתידיות בסדרה
+      </label>
+    </div>
     <div style="display:flex;gap:8px;justify-content:flex-end;">
       <button class="btn btn-ghost" onclick="closeCancelModal()">חזרה</button>
       <button class="btn btn-danger" onclick="confirmCancel()">אשר ביטול</button>
@@ -149,6 +154,7 @@
   let therapists = [];
   let therapistSlots = {}; // therapist_id -> [{day_of_week, start_time, end_time}]
   let cancelingId = null;
+  let cancelingSeriesId = null;
 
   fetch('/auth/me').then(r => r.json()).then(u => {
     document.getElementById('userName').textContent = u.name || u.email;
@@ -408,6 +414,7 @@
 
   function openEditModal(s) {
     document.getElementById('editSessionId').value = s.id;
+    cancelingSeriesId = s.series_id || null;
     document.getElementById('modalTitle').textContent = 'עריכת פגישה';
     document.getElementById('fTherapist').value = s.therapist_id;
     document.getElementById('fStart').value = toLocalDatetimeInput(s.start_time);
@@ -489,6 +496,8 @@
       : 'הפגישה תבוטל ללא חיוב.';
     document.getElementById('waiveGroup').style.display = isLate ? 'block' : 'none';
     document.getElementById('waiveCharge').checked = false;
+    document.getElementById('cancelSeriesGroup').style.display = cancelingSeriesId ? 'block' : 'none';
+    document.getElementById('cancelSeriesCheck').checked = false;
 
     closeModal();
     document.getElementById('cancelModalOverlay').classList.add('open');
@@ -497,16 +506,18 @@
   function closeCancelModal() {
     document.getElementById('cancelModalOverlay').classList.remove('open');
     cancelingId = null;
+    cancelingSeriesId = null;
   }
 
   async function confirmCancel() {
     if (!cancelingId) return;
     const waive = document.getElementById('waiveCharge').checked;
+    const cancelSeries = document.getElementById('cancelSeriesCheck').checked;
     try {
       const res = await fetch(`/api/sessions/${cancelingId}/cancel`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ waive_charge: waive }),
+        body: JSON.stringify({ waive_charge: waive, cancel_series: cancelSeries }),
       });
       const data = await res.json();
       closeCancelModal();

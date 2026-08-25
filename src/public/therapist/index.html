@@ -94,6 +94,11 @@
     <button class="modal-close" onclick="document.getElementById('cancelModal').classList.remove('open')">✕</button>
     <h3>ביטול פגישה</h3>
     <div id="cancelModalMsg" style="font-size:14px;line-height:1.8;margin-bottom:20px;"></div>
+    <div class="form-group" id="cancelSeriesGroup" style="display:none;margin-bottom:16px;">
+      <label style="display:flex;align-items:center;gap:8px;color:#c05621;font-weight:600;cursor:pointer;">
+        <input type="checkbox" id="cancelSeriesCheck"> בטל גם את כל הפגישות העתידיות בסדרה
+      </label>
+    </div>
     <div style="display:flex;gap:10px;justify-content:flex-end;">
       <button class="btn btn-ghost" onclick="document.getElementById('cancelModal').classList.remove('open')">חזרה</button>
       <button class="btn btn-danger" onclick="confirmCancel()">כן, בטל פגישה</button>
@@ -201,7 +206,7 @@
   }
 
   function requestCancelById(s) {
-    cancelSessionData = { id: s.id, startTime: s.start_time, originalEndTime: s.end_time };
+    cancelSessionData = { id: s.id, startTime: s.start_time, originalEndTime: s.end_time, seriesId: s.series_id || null };
     requestCancel();
   }
 
@@ -240,7 +245,7 @@
     document.getElementById('cancelSessionBtn').style.display = '';
     document.getElementById('saveSessionBtn').style.display = '';
     document.getElementById('sessionModalAlert').className = 'alert';
-    cancelSessionData = { id: s.id, startTime: s.start_time, originalEndTime: s.end_time };
+    cancelSessionData = { id: s.id, startTime: s.start_time, originalEndTime: s.end_time, seriesId: s.series_id || null };
     document.getElementById('sessionModal').classList.add('open');
   }
 
@@ -276,6 +281,8 @@
       document.getElementById('cancelModal').querySelector('.btn-danger').style.display = '';
     }
     document.getElementById('cancelModalMsg').innerHTML = msg;
+    document.getElementById('cancelSeriesGroup').style.display = cancelSessionData.seriesId ? 'block' : 'none';
+    document.getElementById('cancelSeriesCheck').checked = false;
     // סגור את מודל העריכה לפני שפותחים את מודל הביטול
     document.getElementById('sessionModal').classList.remove('open');
     document.getElementById('cancelModal').classList.add('open');
@@ -284,11 +291,12 @@
   async function confirmCancel() {
     if (!cancelSessionData) return;
     document.getElementById('cancelModal').classList.remove('open');
+    const cancelSeries = document.getElementById('cancelSeriesCheck').checked;
     try {
       const res = await fetch(`/api/sessions/${cancelSessionData.id}/cancel`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ cancel_series: cancelSeries }),
       });
       const data = await res.json();
       if (!res.ok) {

@@ -349,7 +349,7 @@ router.post('/recurring', isAdminOrTherapist, async (req, res) => {
 
 // POST /api/sessions/:id/cancel — ביטול פגישה (מנהל או מטפל שלו)
 router.post('/:id/cancel', isAdminOrTherapist, async (req, res) => {
-  const { waive_charge } = req.body; // רק מנהל יכול לפטור מחיוב
+  const { waive_charge, cancel_series } = req.body;
   try {
     const existing = await pool.query('SELECT * FROM sessions WHERE id = $1', [req.params.id]);
     if (!existing.rows[0]) return res.status(404).json({ error: 'לא נמצא' });
@@ -375,6 +375,23 @@ router.post('/:id/cancel', isAdminOrTherapist, async (req, res) => {
       newStatus = 'cancelled_charged';
     }
 
+    // ביטול פגישות עתידיות בסדרה (כולל הנוכחית)
+    if (cancel_series && session.series_id) {
+      await pool.query(
+        `UPDATE sessions SET status = 'cancelled', cancelled_at = NOW()
+         WHERE series_id = $1 AND start_time >= $2 AND status = 'confirmed'`,
+        [session.series_id, session.start_time]
+      );
+      // מחק את האירוע החוזר כולו מגוגל
+      const seriesRes = await pool.query(
+        `SELECT google_event_id FROM sessions WHERE series_id = $1 AND google_event_id IS NOT NULL LIMIT 1`,
+        [session.series_id]
+      );
+      const seriesGoogleId = seriesRes.rows[0]?.google_event_id;
+      if (seriesGoogleId) deleteGoogleEvent(seriesGoogleId);
+      return res.json({ message: 'הפגישות העתידיות בסדרה בוטלו', charged: false });
+    }
+
     const result = await pool.query(
       `UPDATE sessions
        SET status = $1, cancelled_at = NOW(), cancellation_waived = $2
@@ -385,7 +402,6 @@ router.post('/:id/cancel', isAdminOrTherapist, async (req, res) => {
 
     // מחק/בטל מגוגל קאלנדר ברקע
     if (session.series_id) {
-      // מצא את ה-google_event_id של הפגישה הראשונה בסדרה
       const seriesRes = await pool.query(
         `SELECT google_event_id FROM sessions
          WHERE series_id = $1 AND google_event_id IS NOT NULL
