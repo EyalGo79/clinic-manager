@@ -114,12 +114,22 @@ router.post('/sync', isAdmin, async (req, res) => {
       );
     }
 
-    if (rows.length > 0) {
+    // deduplicate rows by event_id — Google can return the same event_id more than once
+    // (e.g. overlapping pagination windows), and the INSERT can't handle two rows with the same id
+    const seenEventIds = new Set();
+    const uniqueRows = rows.filter(r => {
+      if (seenEventIds.has(r[3])) return false;
+      seenEventIds.add(r[3]);
+      return true;
+    });
+    const deduped = uniqueRows;
+
+    if (deduped.length > 0) {
       // שלב 1: חבר אירועי גוגל לפגישות קיימות ב-DB שחסר להן google_event_id — query אחד
-      const matchIds      = rows.filter(r => r[0]).map(r => r[3]);
-      const matchTherapists = rows.filter(r => r[0]).map(r => r[0]);
-      const matchStarts   = rows.filter(r => r[0]).map(r => r[1]);
-      const matchEnds     = rows.filter(r => r[0]).map(r => r[2]);
+      const matchIds      = deduped.filter(r => r[0]).map(r => r[3]);
+      const matchTherapists = deduped.filter(r => r[0]).map(r => r[0]);
+      const matchStarts   = deduped.filter(r => r[0]).map(r => r[1]);
+      const matchEnds     = deduped.filter(r => r[0]).map(r => r[2]);
 
       if (matchIds.length > 0) {
         await pool.query(
@@ -144,12 +154,12 @@ router.post('/sync', isAdmin, async (req, res) => {
       }
 
       // שלב 2: upsert בשני שלבים — עדכון קיימים לפי google_event_id, הכנסת חדשים
-      const therapistIds = rows.map(r => r[0]);
-      const startTimes   = rows.map(r => r[1]);
-      const endTimes     = rows.map(r => r[2]);
-      const eventIds     = rows.map(r => r[3]);
-      const statuses     = rows.map(r => r[4]);
-      const notes        = rows.map(r => r[5]);
+      const therapistIds = deduped.map(r => r[0]);
+      const startTimes   = deduped.map(r => r[1]);
+      const endTimes     = deduped.map(r => r[2]);
+      const eventIds     = deduped.map(r => r[3]);
+      const statuses     = deduped.map(r => r[4]);
+      const notes        = deduped.map(r => r[5]);
 
       // 2a: עדכן שורות קיימות לפי google_event_id
       // — אם גוגל מחזיר confirmed ו-DB הוא cancelled → החזר ל-confirmed
@@ -187,7 +197,8 @@ router.post('/sync', isAdmin, async (req, res) => {
              AND s.start_time = m.start_time
              AND s.end_time   = m.end_time
              AND s.status = 'confirmed'
-         )`,
+         )
+         ON CONFLICT (google_event_id) DO NOTHING`,
         [therapistIds, startTimes, endTimes, eventIds, statuses, notes]
       );
 
@@ -203,7 +214,7 @@ router.post('/sync', isAdmin, async (req, res) => {
         )
       `);
 
-      results.imported = rows.length;
+      results.imported = deduped.length;
     }
 
     res.json({ success: true, ...results, total: events.length });
