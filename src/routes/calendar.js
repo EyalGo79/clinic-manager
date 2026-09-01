@@ -219,7 +219,8 @@ router.post('/sync', isAdmin, async (req, res) => {
 
     res.json({ success: true, ...results, total: events.length });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Sync error:', err.message, err.detail || '');
+    res.status(500).json({ error: err.message, detail: err.detail });
   }
 });
 
