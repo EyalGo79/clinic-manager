@@ -102,9 +102,6 @@ router.post('/sync', isAdmin, async (req, res) => {
       const therapistId = therapistMap.get(summaryKey) || null;
       const status = event.status === 'cancelled' ? 'cancelled' : 'confirmed';
 
-      if (therapistId === 13) {
-        console.log('DEBUG therapist 13 event:', event.id, startTime, status, event.recurringEventId || '');
-      }
       rows.push([therapistId, startTime, endTime, event.id, status, event.summary || null]);
     }
 
@@ -167,10 +164,12 @@ router.post('/sync', isAdmin, async (req, res) => {
       // 2a: עדכן שורות קיימות לפי google_event_id
       // — אם גוגל מחזיר confirmed ו-DB הוא cancelled → החזר ל-confirmed
       // — לא לגעת ב-cancelled_charged לעולם
+      // — לא לעדכן start/end של פגישה cancelled: אם הפגישה הועברה בגוגל אבל בוטלה אצלנו,
+      //   עדכון הזמן יגרום לה להתנגש עם שורה אחרת באותו therapist+time ויוצר כפילות בסינק הבא
       await pool.query(
         `UPDATE sessions s
-         SET start_time   = m.start_time,
-             end_time     = m.end_time,
+         SET start_time   = CASE WHEN s.status = 'cancelled' THEN s.start_time ELSE m.start_time END,
+             end_time     = CASE WHEN s.status = 'cancelled' THEN s.end_time   ELSE m.end_time   END,
              status       = CASE
                WHEN s.status = 'cancelled_charged' THEN s.status
                ELSE m.status
