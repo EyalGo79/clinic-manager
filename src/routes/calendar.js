@@ -126,14 +126,19 @@ router.post('/sync', isAdmin, async (req, res) => {
           `UPDATE sessions s
            SET google_event_id = m.event_id
            FROM (
-             SELECT * FROM unnest(
+             -- pick only the lowest-id session per event to avoid assigning the same
+             -- google_event_id to multiple rows (which would violate the unique constraint)
+             SELECT DISTINCT ON (m.event_id) s.id AS session_id, m.event_id
+             FROM unnest(
                $1::text[], $2::int[], $3::timestamptz[], $4::timestamptz[]
-             ) AS t(event_id, therapist_id, start_time, end_time)
+             ) AS m(event_id, therapist_id, start_time, end_time)
+             JOIN sessions s ON s.google_event_id IS NULL
+               AND s.therapist_id = m.therapist_id
+               AND s.start_time BETWEEN m.start_time - interval '1 minute' AND m.start_time + interval '1 minute'
+               AND s.end_time   BETWEEN m.end_time   - interval '1 minute' AND m.end_time   + interval '1 minute'
+             ORDER BY m.event_id, s.id
            ) m
-           WHERE s.google_event_id IS NULL
-             AND s.therapist_id = m.therapist_id
-             AND s.start_time BETWEEN m.start_time - interval '1 minute' AND m.start_time + interval '1 minute'
-             AND s.end_time   BETWEEN m.end_time   - interval '1 minute' AND m.end_time   + interval '1 minute'`,
+           WHERE s.id = m.session_id`,
           [matchIds, matchTherapists, matchStarts, matchEnds]
         );
       }
