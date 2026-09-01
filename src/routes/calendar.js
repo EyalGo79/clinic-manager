@@ -102,6 +102,9 @@ router.post('/sync', isAdmin, async (req, res) => {
       const therapistId = therapistMap.get(summaryKey) || null;
       const status = event.status === 'cancelled' ? 'cancelled' : 'confirmed';
 
+      if (therapistId === 13) {
+        console.log('DEBUG therapist 13 event:', event.id, startTime, status, event.recurringEventId || '');
+      }
       rows.push([therapistId, startTime, endTime, event.id, status, event.summary || null]);
     }
 
