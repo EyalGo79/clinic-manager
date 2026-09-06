@@ -144,8 +144,12 @@
     </div>
     <div id="updateSeriesGroup" style="display:none;" class="form-group">
       <label style="display:flex;align-items:center;gap:8px;color:#2b6cb0;font-weight:600;cursor:pointer;">
-        <input type="checkbox" id="updateSeriesCheck"> עדכן גם את כל הפגישות העתידיות בסדרה
+        <input type="checkbox" id="updateSeriesCheck" onchange="toggleUpdateSeries()"> עדכן גם את כל הפגישות העתידיות בסדרה
       </label>
+      <div id="updateSeriesExtra" style="display:none;margin-top:8px;">
+        <label>תאריך סיום חדש לסדרה (אופציונלי)</label>
+        <input type="date" class="form-control" id="sNewRepeatUntil">
+      </div>
     </div>
     <div id="sessionModalAlert" class="alert"></div>
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:12px;">
@@ -228,6 +232,8 @@
     document.getElementById('recurringSection').style.display = '';
     document.getElementById('updateSeriesGroup').style.display = 'none';
     document.getElementById('updateSeriesCheck').checked = false;
+    document.getElementById('updateSeriesExtra').style.display = 'none';
+    document.getElementById('sNewRepeatUntil').value = '';
     document.getElementById('cancelSessionBtn').style.display = 'none';
     document.getElementById('saveSessionBtn').style.display = '';
     document.getElementById('sessionModalAlert').className = 'alert';
@@ -251,6 +257,8 @@
     document.getElementById('recurringSection').style.display = 'none';
     document.getElementById('updateSeriesGroup').style.display = s.series_id ? 'block' : 'none';
     document.getElementById('updateSeriesCheck').checked = false;
+    document.getElementById('updateSeriesExtra').style.display = 'none';
+    document.getElementById('sNewRepeatUntil').value = '';
     document.getElementById('cancelSessionBtn').style.display = '';
     document.getElementById('saveSessionBtn').style.display = '';
     document.getElementById('sessionModalAlert').className = 'alert';
@@ -261,6 +269,12 @@
   function toggleRecurring() {
     const on = document.getElementById('sRecurring').checked;
     document.getElementById('recurringExtra').style.display = on ? '' : 'none';
+  }
+
+  function toggleUpdateSeries() {
+    const checked = document.getElementById('updateSeriesCheck').checked;
+    document.getElementById('updateSeriesExtra').style.display = checked ? '' : 'none';
+    if (!checked) document.getElementById('sNewRepeatUntil').value = '';
   }
 
   function closeSessionModal() {
@@ -387,8 +401,9 @@
       const url = editId ? `/api/sessions/${editId}` : '/api/sessions';
       const method = editId ? 'PUT' : 'POST';
       const updateSeries = editId ? document.getElementById('updateSeriesCheck').checked : false;
+      const newRepeatUntil = editId ? (document.getElementById('sNewRepeatUntil').value || null) : null;
       const body = editId
-        ? { start_time, end_time, notes, update_series: updateSeries }
+        ? { start_time, end_time, notes, update_series: updateSeries, repeat_until: newRepeatUntil }
         : { therapist_id: myId, start_time, end_time, notes };
 
       // קיצור ברגע האחרון — אם עורכים ביום הפגישה ומקצרים אותה

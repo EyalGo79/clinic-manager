@@ -117,8 +117,12 @@
     </div>
     <div id="updateSeriesGroup" style="display:none;" class="form-group">
       <label style="display:flex;align-items:center;gap:8px;color:#2b6cb0;font-weight:600;cursor:pointer;">
-        <input type="checkbox" id="updateSeriesCheck"> עדכן גם את כל הפגישות העתידיות בסדרה
+        <input type="checkbox" id="updateSeriesCheck" onchange="toggleUpdateSeries()"> עדכן גם את כל הפגישות העתידיות בסדרה
       </label>
+      <div id="updateSeriesExtra" style="display:none;margin-top:8px;">
+        <label>תאריך סיום חדש לסדרה (אופציונלי — ישאיר את הסיום הנוכחי אם לא מולא)</label>
+        <input type="date" class="form-control" id="fNewRepeatUntil">
+      </div>
     </div>
     <div id="modalAlert" class="alert"></div>
 
@@ -414,6 +418,8 @@
     document.getElementById('recurringSection').style.display = '';
     document.getElementById('updateSeriesGroup').style.display = 'none';
     document.getElementById('updateSeriesCheck').checked = false;
+    document.getElementById('updateSeriesExtra').style.display = 'none';
+    document.getElementById('fNewRepeatUntil').value = '';
     document.getElementById('cancelBtn').style.display = 'none';
     document.getElementById('saveBtn').style.display = '';
     hideAlert('modalAlert');
@@ -434,6 +440,8 @@
     document.getElementById('recurringSection').style.display = 'none';
     document.getElementById('updateSeriesGroup').style.display = s.series_id ? 'block' : 'none';
     document.getElementById('updateSeriesCheck').checked = false;
+    document.getElementById('updateSeriesExtra').style.display = 'none';
+    document.getElementById('fNewRepeatUntil').value = '';
     endUserModified = true;
 
     const isCancelled = s.status === 'cancelled' || s.status === 'cancelled_charged';
@@ -441,6 +449,12 @@
     document.getElementById('saveBtn').style.display = isCancelled ? 'none' : '';
     hideAlert('modalAlert');
     document.getElementById('modalOverlay').classList.add('open');
+  }
+
+  function toggleUpdateSeries() {
+    const checked = document.getElementById('updateSeriesCheck').checked;
+    document.getElementById('updateSeriesExtra').style.display = checked ? '' : 'none';
+    if (!checked) document.getElementById('fNewRepeatUntil').value = '';
   }
 
   function closeModal() { document.getElementById('modalOverlay').classList.remove('open'); }
@@ -482,10 +496,11 @@
 
     try {
       const updateSeries = document.getElementById('updateSeriesCheck').checked;
+      const newRepeatUntil = document.getElementById('fNewRepeatUntil').value || null;
       const res = await fetch(id ? `/api/sessions/${id}` : '/api/sessions', {
         method: id ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(id ? { ...body, update_series: updateSeries } : body),
+        body: JSON.stringify(id ? { ...body, update_series: updateSeries, repeat_until: newRepeatUntil } : body),
       });
       const data = await res.json();
       if (!res.ok) { showAlert('modalAlert', data.error || 'שגיאה', 'error'); return; }

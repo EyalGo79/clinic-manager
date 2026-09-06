@@ -219,7 +219,7 @@ router.post('/', isAdminOrTherapist, async (req, res) => {
 
 // PUT /api/sessions/:id — עדכון פגישה
 router.put('/:id', isAdminOrTherapist, async (req, res) => {
-  const { start_time, end_time, notes, update_series } = req.body;
+  const { start_time, end_time, notes, update_series, repeat_until } = req.body;
   try {
     const existing = await pool.query('SELECT * FROM sessions WHERE id = $1', [req.params.id]);
     if (!existing.rows[0]) return res.status(404).json({ error: 'לא נמצא' });
@@ -267,6 +267,17 @@ router.put('/:id', isAdminOrTherapist, async (req, res) => {
         await pool.query(
           `UPDATE sessions SET start_time = $1, end_time = $2, notes = COALESCE($3, notes) WHERE id = $4`,
           [occNewStart, occNewEnd, notes, occ.id]
+        );
+      }
+
+      // אם צוין תאריך סיום חדש — מחק פגישות מעבר לתאריך
+      if (repeat_until) {
+        const untilDate = new Date(
+          repeat_until.length === 10 ? `${repeat_until}T23:59:59+03:00` : repeat_until
+        );
+        await pool.query(
+          `DELETE FROM sessions WHERE series_id = $1 AND start_time > $2 AND status = 'confirmed'`,
+          [session.series_id, untilDate]
         );
       }
 
