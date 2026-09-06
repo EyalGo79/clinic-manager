@@ -34,15 +34,26 @@ async function getConflict(therapistId, startTime, endTime, excludeId = null) {
     return { type: 'overlap_same', conflict: sameTherapist.rows[0] };
   }
 
-  // 2) חפיפה (כולל בופר) עם פגישה של מטפל אחר
+  // 2) חפיפה או מרווח קצר מדי עם פגישה של מטפל אחר
+  // בודקים: חפיפה ממש, או מרווח בין הפגישות קטן מ-BUFFER_MINUTES
   const otherTherapist = await pool.query(`
     SELECT s.id, s.start_time, s.end_time, t.name AS therapist_name
     FROM sessions s
     LEFT JOIN therapists t ON s.therapist_id = t.id
     WHERE s.therapist_id != $1 AND s.status = 'confirmed' AND s.id != $2
       AND s.start_time < $3 AND s.end_time > $4
+      AND (
+        -- חפיפה ממש
+        (s.start_time < $6 AND s.end_time > $5)
+        OR
+        -- מרווח קטן מ-buffer: הקיימת לפני החדשה
+        (s.end_time <= $5 AND s.end_time > $4)
+        OR
+        -- מרווח קטן מ-buffer: הקיימת אחרי החדשה
+        (s.start_time >= $6 AND s.start_time < $3)
+      )
     LIMIT 1
-  `, [therapistId, excludeId || 0, bufferedEnd, bufferedStart]);
+  `, [therapistId, excludeId || 0, bufferedEnd, bufferedStart, newStart, newEnd]);
   if (otherTherapist.rows.length > 0) {
     return { type: 'overlap_other', conflict: otherTherapist.rows[0] };
   }
