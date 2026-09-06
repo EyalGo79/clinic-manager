@@ -68,7 +68,7 @@ router.post('/sync', isAdmin, async (req, res) => {
       const response = await calendar.events.list({
         calendarId,
         timeMin: timeMin || new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString(),
-        timeMax: timeMax || new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
+        timeMax: timeMax || new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString(),
         singleEvents: true,
         showDeleted: true,
         orderBy: 'startTime',
