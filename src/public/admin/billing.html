@@ -40,7 +40,14 @@
     .billing-breakdown .row.total { font-weight:700; font-size:14px; border-top:1px solid #e2e8f0; margin-top:4px; padding-top:4px; }
     .billing-breakdown .row.credit { color:#276749; }
     .billing-breakdown .row.discount { color:#744210; }
-    .adj-row { display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid #f0f4f8; font-size:13px; }
+    .note-cell { max-width:180px; }
+    .note-input {
+      width:100%; border:1px solid #e2e8f0; border-radius:5px; padding:4px 7px;
+      font-size:12px; background:transparent; resize:none; font-family:inherit;
+      color:#2d3748; transition:border-color .15s;
+    }
+    .note-input:focus { outline:none; border-color:#4299e1; background:#fff; }
+    .note-input::placeholder { color:#a0aec0; }
   </style>
 </head>
 <body>
@@ -102,6 +109,7 @@
               <th>שעות נוספות</th>
               <th>זיכויים</th>
               <th>סה"כ לחיוב</th>
+              <th>הערה</th>
               <th>פרוט</th>
             </tr></thead>
             <tbody id="billingTable">
@@ -114,6 +122,7 @@
                 <td></td>
                 <td></td>
                 <td id="footTotal">—</td>
+                <td></td>
                 <td></td>
               </tr>
             </tfoot>
@@ -239,7 +248,7 @@
 
   async function loadBilling() {
     const tbody = document.getElementById('billingTable');
-    tbody.innerHTML = '<tr><td colspan="5" class="loading">טוען...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="loading">טוען...</td></tr>';
 
     // הצג כפתור נעילה רק לחודשים שעברו
     const now = new Date();
@@ -254,8 +263,7 @@
       const therapists = data.therapists;
 
       if (!therapists.length) {
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#718096;padding:24px;">אין נתונים לחודש זה</td></tr>';
-        document.getElementById('footHours').textContent = '—';
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#718096;padding:24px;">אין נתונים לחודש זה</td></tr>';
         document.getElementById('footTotal').textContent = '—';
         return;
       }
@@ -274,12 +282,14 @@
         const adjCell = adjTotal > 0
           ? `<span style="color:#276749;font-size:13px;">&#8722;&#8362;${adjTotal.toLocaleString('he-IL',{maximumFractionDigits:0})}</span>`
           : `<span style="color:#718096;font-size:13px;">&#8212;</span>`;
+        const safeNote = (t.note || '').replace(/"/g, '&quot;');
         return `<tr>
           <td><strong>${t.name}</strong><br><small style="color:#718096">${t.email}</small></td>
           <td>${slotCell}</td>
           <td>${extraCell}</td>
           <td>${adjCell}</td>
           <td><strong>&#8362;${t.totalAmount.toLocaleString('he-IL', {maximumFractionDigits:0})}</strong></td>
+          <td class="note-cell"><textarea class="note-input" rows="1" placeholder="הערה..." onchange="saveNote(${t.id}, this.value)">${safeNote}</textarea></td>
           <td><button class="btn btn-ghost btn-sm" onclick="showDetail(${t.id})">פרוט</button></td>
         </tr>`;
       }).join('');
@@ -295,8 +305,18 @@
         document.getElementById('unlockBtn').style.display = isLocked ? '' : 'none';
       }
     } catch (e) {
-      tbody.innerHTML = '<tr><td colspan="5" style="color:#e53e3e;text-align:center;">שגיאה בטעינה</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" style="color:#e53e3e;text-align:center;">שגיאה בטעינה</td></tr>';
     }
+  }
+
+  async function saveNote(therapistId, note) {
+    try {
+      await fetch(`/api/billing/${therapistId}/${currentYear}/${currentMonth}/note`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ note }),
+      });
+    } catch (e) {}
   }
 
   async function showDetail(therapistId) {

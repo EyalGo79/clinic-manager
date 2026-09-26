@@ -23,6 +23,16 @@ const PORT = process.env.PORT || 3000;
 pool.query('ALTER TABLE admins ADD COLUMN IF NOT EXISTS is_calendar_primary BOOLEAN NOT NULL DEFAULT false')
   .catch(e => console.error('migration error:', e.message));
 
+// migration: billing_notes table
+pool.query(`CREATE TABLE IF NOT EXISTS billing_notes (
+  therapist_id INTEGER REFERENCES therapists(id) ON DELETE CASCADE,
+  year INTEGER NOT NULL,
+  month INTEGER NOT NULL,
+  note TEXT NOT NULL DEFAULT '',
+  updated_at TIMESTAMP DEFAULT NOW(),
+  PRIMARY KEY (therapist_id, year, month)
+)`).catch(e => console.error('migration error (billing_notes):', e.message));
+
 app.set('trust proxy', 1);
 
 app.use(helmet({

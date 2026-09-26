@@ -116,3 +116,12 @@ CREATE INDEX IF NOT EXISTS idx_sessions_time ON sessions(start_time, end_time);
 CREATE INDEX IF NOT EXISTS idx_invoices_therapist ON invoices(therapist_id);
 CREATE INDEX IF NOT EXISTS idx_slots_therapist ON therapist_slots(therapist_id);
 CREATE INDEX IF NOT EXISTS idx_adjustments_therapist ON billing_adjustments(therapist_id, year, month);
+
+CREATE TABLE IF NOT EXISTS billing_notes (
+  therapist_id INTEGER REFERENCES therapists(id) ON DELETE CASCADE,
+  year INTEGER NOT NULL,
+  month INTEGER NOT NULL,
+  note TEXT NOT NULL DEFAULT '',
+  updated_at TIMESTAMP DEFAULT NOW(),
+  PRIMARY KEY (therapist_id, year, month)
+);

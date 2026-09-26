@@ -437,7 +437,18 @@ router.get('/summary/:year/:month', isAdmin, async (req, res) => {
       })
     );
 
-    res.json({ year: parseInt(year), month: parseInt(month), therapists: summary });
+    // שלוף הערות לכל המטפלים בבת אחת
+    const notesRes = await pool.query(
+      'SELECT therapist_id, note FROM billing_notes WHERE year = $1 AND month = $2',
+      [year, month]
+    );
+    const notesMap = Object.fromEntries(notesRes.rows.map(r => [r.therapist_id, r.note]));
+    const summaryWithNotes = summary.map(t => ({ ...t, note: notesMap[t.id] || '' }));
+
+    // מסנן מטפלים ללא חיובים (totalHours = 0 ו-totalAmount = 0 ואין ססיה)
+    const active = summaryWithNotes.filter(t => t.totalHours > 0 || t.hasSlot);
+
+    res.json({ year: parseInt(year), month: parseInt(month), therapists: active });
   } catch (err) {
     console.error('billing summary error:', err.message);
     res.status(500).json({ error: err.message });
@@ -623,6 +634,37 @@ router.post('/:therapistId/:year/:month/save', isAdmin, async (req, res) => {
        billing.slotRate, billing.extraRatePerHour || null]
     );
     res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/billing/:therapistId/:year/:month/note
+router.get('/:therapistId/:year/:month/note', isAdmin, async (req, res) => {
+  const { therapistId, year, month } = req.params;
+  try {
+    const result = await pool.query(
+      'SELECT note FROM billing_notes WHERE therapist_id = $1 AND year = $2 AND month = $3',
+      [therapistId, year, month]
+    );
+    res.json({ note: result.rows[0]?.note || '' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/billing/:therapistId/:year/:month/note
+router.put('/:therapistId/:year/:month/note', isAdmin, async (req, res) => {
+  const { therapistId, year, month } = req.params;
+  const { note } = req.body;
+  try {
+    await pool.query(
+      `INSERT INTO billing_notes (therapist_id, year, month, note, updated_at)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (therapist_id, year, month) DO UPDATE SET note = $4, updated_at = NOW()`,
+      [therapistId, year, month, note || '']
+    );
+    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
