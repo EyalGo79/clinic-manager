@@ -9,8 +9,6 @@
     /* ===== Revenue chart ===== */
     .viz-root {
       --surface-1:    #fcfcfb;
-      --series-1:     #2a78d6;
-      --series-1-dim: #a8c8f5;
       --text-pri:     #0b0b0b;
       --text-sec:     #52514e;
       --text-muted:   #898781;
@@ -18,12 +16,13 @@
       --baseline:     #c3c2b7;
       --tooltip-bg:   #ffffff;
       --tooltip-bdr:  rgba(11,11,11,0.12);
+      /* 8 categorical slots — validated adjacent light+dark */
+      --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
+      --s5: #e87ba4; --s6: #008300; --s7: #4a3aa7; --s8: #e34948;
     }
     @media (prefers-color-scheme: dark) {
       .viz-root {
         --surface-1:    #1a1a19;
-        --series-1:     #3987e5;
-        --series-1-dim: #1c4a8c;
         --text-pri:     #ffffff;
         --text-sec:     #c3c2b7;
         --text-muted:   #898781;
@@ -31,19 +30,13 @@
         --baseline:     #383835;
         --tooltip-bg:   #2a2a28;
         --tooltip-bdr:  rgba(255,255,255,0.12);
+        --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+        --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
       }
     }
-    .chart-card { position:relative; }
-    .chart-wrap {
-      position: relative;
-      width: 100%;
-      overflow: hidden;
-    }
-    #revenueChart {
-      display: block;
-      width: 100%;
-      overflow: visible;
-    }
+    .chart-card { position: relative; }
+    .chart-wrap { position: relative; width: 100%; overflow: hidden; }
+    #revenueChart { display: block; width: 100%; overflow: visible; }
     .chart-tooltip {
       position: absolute;
       background: var(--tooltip-bg);
@@ -57,10 +50,28 @@
       white-space: nowrap;
       box-shadow: 0 2px 8px rgba(0,0,0,.10);
       z-index: 10;
+      min-width: 140px;
     }
     .chart-tooltip.visible { opacity: 1; }
-    .chart-tooltip .tt-label { color: var(--text-sec); margin-bottom: 2px; font-size: 12px; }
-    .chart-tooltip .tt-value { color: var(--text-pri); font-weight: 700; font-size: 15px; }
+    .chart-tooltip .tt-month { color: var(--text-sec); font-size: 12px; margin-bottom: 6px; font-weight: 600; }
+    .chart-tooltip .tt-row { display: flex; align-items: center; gap: 6px; font-size: 13px; margin-bottom: 3px; }
+    .chart-tooltip .tt-row:last-child { margin-bottom: 0; }
+    .chart-tooltip .tt-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+    .chart-tooltip .tt-name { color: var(--text-sec); flex: 1; }
+    .chart-tooltip .tt-val { color: var(--text-pri); font-weight: 700; }
+    .chart-tooltip .tt-total {
+      border-top: 1px solid var(--grid, #e1e0d9);
+      margin-top: 5px; padding-top: 5px;
+      display: flex; justify-content: space-between;
+      font-size: 13px; font-weight: 700; color: var(--text-pri);
+    }
+    /* legend */
+    .chart-legend {
+      display: flex; flex-wrap: wrap; gap: 6px 14px;
+      margin-top: 12px; font-size: 12px; color: var(--text-sec);
+    }
+    .chart-legend-item { display: flex; align-items: center; gap: 5px; }
+    .chart-legend-swatch { width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; }
   </style>
 </head>
 <body>
@@ -124,12 +135,10 @@
           <span id="chartRange" style="font-size:12px;color:#718096;"></span>
         </div>
         <div class="chart-wrap" id="chartWrap">
-          <svg id="revenueChart" aria-label="גרף הכנסות חודשיות"></svg>
-          <div class="chart-tooltip" id="chartTooltip">
-            <div class="tt-label" id="ttLabel"></div>
-            <div class="tt-value" id="ttValue"></div>
-          </div>
+          <svg id="revenueChart" aria-label="גרף הכנסות חודשיות לפי מטפל"></svg>
+          <div class="chart-tooltip" id="chartTooltip"></div>
         </div>
+        <div class="chart-legend" id="chartLegend"></div>
         <div id="chartEmpty" style="display:none;text-align:center;color:#718096;padding:32px 0;font-size:14px;">אין נתונים זמינים</div>
       </div>
 
@@ -258,7 +267,15 @@
     }
   }
 
-  // גרף הכנסות — 12 חודשים אחורה
+  // גרף הכנסות — 12 חודשים אחורה, חלוקה לפי מטפל
+  const SLOT_COLORS_LIGHT = ['#2a78d6','#eb6834','#1baf7a','#eda100','#e87ba4','#008300','#4a3aa7','#e34948'];
+  const SLOT_COLORS_DARK  = ['#3987e5','#d95926','#199e70','#c98500','#d55181','#008300','#9085e9','#e66767'];
+
+  function slotColors() {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches
+      ? SLOT_COLORS_DARK : SLOT_COLORS_LIGHT;
+  }
+
   async function loadRevenueChart() {
     const months = [];
     const d = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -279,147 +296,245 @@
     } catch (e) { return; }
 
     const MONTHS_HE = ['ינו','פבר','מרץ','אפר','מאי','יוני','יולי','אוג','ספט','אוק','נוב','דצמ'];
-    const data = months.map(({ year, month }, i) => ({
-      label: MONTHS_HE[month - 1] + ' ' + String(year).slice(2),
-      amount: (results[i].therapists || []).reduce((s, t) => s + (t.totalAmount || 0), 0),
-      year, month,
-    }));
 
-    const hasData = data.some(d => d.amount > 0);
+    // אסוף את כל שמות המטפלים (לפי סדר הופעה ראשון)
+    const therapistOrder = [];
+    const therapistNames = {};
+    results.forEach(r => {
+      (r.therapists || []).forEach(t => {
+        if (!therapistNames[t.id]) {
+          therapistNames[t.id] = t.name;
+          therapistOrder.push(t.id);
+        }
+      });
+    });
+
+    // מגבילים ל-8 מטפלים — שאר מתמזגים ל"אחרים"
+    const MAX_SERIES = 8;
+    const mainIds   = therapistOrder.slice(0, MAX_SERIES - (therapistOrder.length > MAX_SERIES ? 1 : 0));
+    const hasOther  = therapistOrder.length > MAX_SERIES;
+    const seriesIds = hasOther ? [...mainIds.slice(0, MAX_SERIES - 1), '__other__'] : mainIds;
+    const seriesNames = seriesIds.map(id => id === '__other__' ? 'אחרים' : therapistNames[id]);
+
+    // בנה data לפי חודש
+    const data = months.map(({ year, month }, i) => {
+      const tMap = {};
+      (results[i].therapists || []).forEach(t => { tMap[t.id] = t.totalAmount || 0; });
+      const segments = seriesIds.map(id => {
+        if (id === '__other__') {
+          return therapistOrder.slice(MAX_SERIES - 1).reduce((s, oid) => s + (tMap[oid] || 0), 0);
+        }
+        return tMap[id] || 0;
+      });
+      return {
+        label: MONTHS_HE[month - 1] + ' ' + String(year).slice(2),
+        segments,
+        total: segments.reduce((s, v) => s + v, 0),
+        year, month,
+      };
+    });
+
+    const hasData = data.some(d => d.total > 0);
     if (!hasData) {
       document.getElementById('revenueChart').style.display = 'none';
-      document.getElementById('chartEmpty').style.display = '';
+      document.getElementById('chartEmpty').style.display   = '';
       return;
     }
 
-    // טווח תצוגה בכותרת
     document.getElementById('chartRange').textContent =
       data[0].label + ' – ' + data[data.length - 1].label;
 
-    drawRevenueChart(data);
+    // legend
+    const colors = slotColors();
+    const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const legendEl = document.getElementById('chartLegend');
+    legendEl.innerHTML = seriesIds.map((id, si) =>
+      `<div class="chart-legend-item">
+        <div class="chart-legend-swatch" style="background:${colors[si % colors.length]}"></div>
+        <span>${esc(seriesNames[si])}</span>
+      </div>`
+    ).join('');
+
+    drawRevenueChart(data, seriesIds, seriesNames);
   }
 
-  function drawRevenueChart(data) {
-    const wrap = document.getElementById('chartWrap');
-    const svg  = document.getElementById('revenueChart');
+  function drawRevenueChart(data, seriesIds, seriesNames) {
+    const wrap    = document.getElementById('chartWrap');
+    const svg     = document.getElementById('revenueChart');
     const tooltip = document.getElementById('chartTooltip');
+    const colors  = slotColors();
+    const SURFACE = window.matchMedia('(prefers-color-scheme: dark)').matches ? '#1a1a19' : '#fcfcfb';
+    const GAP     = 2; // 2px surface gap between stacked segments
 
-    const W = wrap.clientWidth || 600;
-    const H = Math.round(W * 0.38);           // aspect ~2.6:1
-    const PAD = { top: 24, right: 16, bottom: 40, left: 64 };
-    const plotW = W - PAD.left - PAD.right;
-    const plotH = H - PAD.top - PAD.bottom;
-
-    const maxAmt = Math.max(...data.map(d => d.amount));
-    const yMax   = Math.ceil(maxAmt / 1000) * 1000 || 1000;
+    const W      = wrap.clientWidth || 600;
+    const H      = Math.round(W * 0.40);
+    const PAD    = { top: 24, right: 16, bottom: 40, left: 64 };
+    const plotW  = W - PAD.left - PAD.right;
+    const plotH  = H - PAD.top - PAD.bottom;
     const BAR_W  = Math.min(24, Math.floor(plotW / data.length * 0.55));
     const BAR_GAP = plotW / data.length;
 
+    const maxAmt = Math.max(...data.map(d => d.total));
+    const yMax   = Math.ceil(maxAmt / 1000) * 1000 || 1000;
+
     const xPos = i => PAD.left + BAR_GAP * i + BAR_GAP / 2;
     const yPos = v => PAD.top + plotH - (v / yMax) * plotH;
+    const fmtILS = n => '₪' + Math.round(n).toLocaleString('he-IL');
 
-    // Y gridlines — 4 ticks
+    // gridlines + Y labels
     const tickCount = 4;
-    const tickStep  = yMax / tickCount;
-    let gridLines = '';
-    let yLabels   = '';
+    let gridLines = '', yLabels = '';
     for (let t = 0; t <= tickCount; t++) {
-      const val = t * tickStep;
+      const val = t * (yMax / tickCount);
       const y   = yPos(val);
       gridLines += `<line x1="${PAD.left}" x2="${W - PAD.right}" y1="${y}" y2="${y}" stroke="var(--grid)" stroke-width="1"/>`;
-      const label = val >= 1000 ? (val / 1000).toLocaleString('he-IL') + 'K' : val;
-      yLabels += `<text x="${PAD.left - 8}" y="${y + 4}" text-anchor="end" fill="var(--text-muted)" font-size="11" font-variant-numeric="tabular-nums">${label}</text>`;
+      const lbl  = val >= 1000 ? (val / 1000).toLocaleString('he-IL') + 'K' : val;
+      yLabels   += `<text x="${PAD.left - 8}" y="${y + 4}" text-anchor="end" fill="var(--text-muted)" font-size="11" font-variant-numeric="tabular-nums">${lbl}</text>`;
     }
-
-    // baseline
     const baseline = `<line x1="${PAD.left}" x2="${W - PAD.right}" y1="${yPos(0)}" y2="${yPos(0)}" stroke="var(--baseline)" stroke-width="1"/>`;
 
-    // עמודות + תוויות ציר X
-    let bars   = '';
-    let xLabels = '';
-    data.forEach((d, i) => {
-      const x   = xPos(i) - BAR_W / 2;
-      const y   = yPos(d.amount);
-      const h   = yPos(0) - y;
-      const rx  = Math.min(4, BAR_W / 2);
-      // עמודה עם קצה עליון מעוגל
-      bars += `
-        <rect class="rev-bar" data-i="${i}"
-          x="${x}" y="${y}" width="${BAR_W}" height="${h}"
+    // stacked bars
+    let bars = '', xLabels = '';
+    data.forEach((col, i) => {
+      let cumulH = 0;
+      const baseY = yPos(0);
+
+      // בנה סגמנטים מלמטה למעלה — כל סגמנט מלבן עם 2px gap
+      const segs = [];
+      col.segments.forEach((val, si) => {
+        if (val <= 0) return;
+        const segH = (val / yMax) * plotH;
+        segs.push({ val, si, segH, y: baseY - cumulH - segH });
+        cumulH += segH;
+      });
+
+      const totalH = cumulH;
+      const rx = Math.min(4, BAR_W / 2);
+      const x  = xPos(i) - BAR_W / 2;
+
+      segs.forEach(({ val, si, segH, y }, idx) => {
+        const isTop = idx === segs.length - 1;
+
+        // הסגמנט עצמו
+        bars += `<rect class="rev-seg" data-col="${i}" data-si="${si}"
+          x="${x}" y="${y}" width="${BAR_W}" height="${segH}"
+          fill="${colors[si % colors.length]}" style="cursor:pointer;transition:opacity .1s;"/>`;
+
+        // 2px surface gap בראש כל סגמנט שאינו התחתון ביותר —
+        // segs בנויים מלמטה למעלה; idx=0 הוא התחתון, idx>0 הוא מעליו.
+        // ה-joint בין idx ל-idx-1 נמצא ב-y של idx (top של הסגמנט הנוכחי).
+        if (idx > 0 && segH > GAP) {
+          bars += `<rect x="${x}" y="${y}" width="${BAR_W}" height="${GAP}" fill="${SURFACE}" pointer-events="none"/>`;
+        }
+      });
+
+      // עיגול פינות עליון — overlay rect ברוחב מלא ב-rx * 2 מהחלק העליון
+      if (totalH > rx && segs.length > 0) {
+        const topY   = baseY - totalH;
+        const topSi  = segs[segs.length - 1].si;
+        bars += `<rect x="${x}" y="${topY}" width="${BAR_W}" height="${rx * 2}"
           rx="${rx}" ry="${rx}"
-          fill="var(--series-1)" style="cursor:pointer;transition:fill .1s;"
-          tabindex="0" role="img" aria-label="${d.label}: ₪${Math.round(d.amount).toLocaleString('he-IL')}"/>`;
-      // clip bottom corners — overlay rect to square the base
-      if (h > rx) {
-        bars += `<rect x="${x}" y="${yPos(0) - rx}" width="${BAR_W}" height="${rx}" fill="var(--series-1)" data-base="${i}"/>`;
+          fill="${colors[topSi % colors.length]}"
+          pointer-events="none"/>`;
       }
-      xLabels += `<text x="${xPos(i)}" y="${yPos(0) + 16}" text-anchor="middle" fill="var(--text-muted)" font-size="11">${d.label}</text>`;
+
+      xLabels += `<text x="${xPos(i)}" y="${yPos(0) + 16}" text-anchor="middle" fill="var(--text-muted)" font-size="11">${col.label}</text>`;
     });
 
-    // crosshair (hidden)
-    const crosshair = `<line id="crosshair" x1="0" x2="0" y1="${PAD.top}" y2="${yPos(0)}" stroke="var(--baseline)" stroke-width="1" stroke-dasharray="4 3" opacity="0" pointer-events="none"/>`;
+    // crosshair
+    const crosshair = `<line id="crosshair" x1="0" x2="0" y1="${PAD.top}" y2="${yPos(0)}"
+      stroke="var(--baseline)" stroke-width="1" stroke-dasharray="4 3" opacity="0" pointer-events="none"/>`;
 
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
     svg.setAttribute('height', H);
     svg.innerHTML = gridLines + baseline + crosshair + bars + yLabels + xLabels;
 
-    // interaction — hover tooltip
-    const fmtILS = n => '₪' + Math.round(n).toLocaleString('he-IL');
+    // hover — tooltip
+    let activeCol = -1;
 
-    function showTip(i, barEl) {
-      const d = data[i];
-      document.getElementById('ttLabel').textContent = d.label;
-      document.getElementById('ttValue').textContent = fmtILS(d.amount);
+    function showTip(colIdx, anchor) {
+      if (activeCol === colIdx) return;
+      activeCol = colIdx;
+      const col = data[colIdx];
+
+      const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+      // בנה תוכן tooltip
+      const rows = seriesIds.map((id, si) => {
+        const v = col.segments[si];
+        if (v <= 0) return '';
+        return `<div class="tt-row">
+          <div class="tt-dot" style="background:${colors[si % colors.length]}"></div>
+          <span class="tt-name">${esc(seriesNames[si])}</span>
+          <span class="tt-val">${fmtILS(v)}</span>
+        </div>`;
+      }).join('');
+
+      tooltip.innerHTML = `
+        <div class="tt-month">${col.label}</div>
+        ${rows}
+        ${seriesIds.length > 1 ? `<div class="tt-total"><span>סה"כ</span><span>${fmtILS(col.total)}</span></div>` : ''}`;
       tooltip.classList.add('visible');
 
-      const svgRect = svg.getBoundingClientRect();
+      // מיקום
       const wrapRect = wrap.getBoundingClientRect();
-      const bRect = barEl.getBoundingClientRect();
-      let left = bRect.left - wrapRect.left + bRect.width / 2;
-      const top  = bRect.top  - wrapRect.top - tooltip.offsetHeight - 8;
-      // clamp להישאר בתוך ה-wrap
-      const ttW = tooltip.offsetWidth || 120;
-      left = Math.max(4, Math.min(left - ttW / 2, wrap.clientWidth - ttW - 4));
+      const anchorRect = anchor.getBoundingClientRect();
+      const ttW = tooltip.offsetWidth || 160;
+      let left = anchorRect.left - wrapRect.left + BAR_W / 2 - ttW / 2;
+      left = Math.max(4, Math.min(left, wrap.clientWidth - ttW - 4));
+      const top  = anchorRect.top - wrapRect.top - (tooltip.offsetHeight || 80) - 8;
       tooltip.style.left = left + 'px';
       tooltip.style.top  = Math.max(4, top) + 'px';
 
       // crosshair
       const ch = svg.getElementById('crosshair');
-      ch.setAttribute('x1', xPos(i));
-      ch.setAttribute('x2', xPos(i));
+      ch.setAttribute('x1', xPos(colIdx));
+      ch.setAttribute('x2', xPos(colIdx));
       ch.setAttribute('opacity', '1');
 
-      // הדגש עמודה
-      svg.querySelectorAll('.rev-bar').forEach((b, j) => {
-        b.setAttribute('fill', j == i ? 'var(--series-1)' : 'var(--series-1-dim)');
-      });
-      svg.querySelectorAll('[data-base]').forEach(b => {
-        b.setAttribute('fill', parseInt(b.dataset.base) == i ? 'var(--series-1)' : 'var(--series-1-dim)');
+      // עמם עמודות אחרות
+      svg.querySelectorAll('.rev-seg').forEach(el => {
+        el.style.opacity = parseInt(el.dataset.col) === colIdx ? '1' : '0.35';
       });
     }
 
     function hideTip() {
+      activeCol = -1;
       tooltip.classList.remove('visible');
       svg.getElementById('crosshair').setAttribute('opacity', '0');
-      svg.querySelectorAll('.rev-bar,[data-base]').forEach(b => b.setAttribute('fill', 'var(--series-1)'));
+      svg.querySelectorAll('.rev-seg').forEach(el => { el.style.opacity = '1'; });
     }
 
-    svg.querySelectorAll('.rev-bar').forEach(bar => {
-      const i = parseInt(bar.dataset.i);
-      bar.addEventListener('pointerenter', () => showTip(i, bar));
-      bar.addEventListener('pointermove',  () => showTip(i, bar));
-      bar.addEventListener('pointerleave', hideTip);
-      bar.addEventListener('focus',        () => showTip(i, bar));
-      bar.addEventListener('blur',         hideTip);
+    // hit targets — rect רחב לכל עמודה
+    data.forEach((col, i) => {
+      const hitX = xPos(i) - BAR_GAP / 2;
+      const hit  = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      hit.setAttribute('x', hitX);
+      hit.setAttribute('y', PAD.top);
+      hit.setAttribute('width', BAR_GAP);
+      hit.setAttribute('height', plotH);
+      hit.setAttribute('fill', 'transparent');
+      hit.style.cursor = 'pointer';
+      hit.setAttribute('tabindex', '0');
+      hit.setAttribute('role', 'img');
+      hit.setAttribute('aria-label', `${col.label}: ${fmtILS(col.total)}`);
+      hit.addEventListener('pointerenter', () => showTip(i, hit));
+      hit.addEventListener('pointermove',  () => showTip(i, hit));
+      hit.addEventListener('pointerleave', hideTip);
+      hit.addEventListener('focus',        () => showTip(i, hit));
+      hit.addEventListener('blur',         hideTip);
+      svg.appendChild(hit);
     });
 
     // redraw on resize
-    if (!svg._resizeObserver) {
-      svg._resizeObserver = new ResizeObserver(() => {
-        if (wrap.clientWidth !== W) drawRevenueChart(data);
-      });
-      svg._resizeObserver.observe(wrap);
-    }
+    if (svg._ro) svg._ro.disconnect();
+    svg._ro = new ResizeObserver(() => {
+      if (wrap.clientWidth !== W) {
+        hideTip();
+        drawRevenueChart(data, seriesIds, seriesNames);
+      }
+    });
+    svg._ro.observe(wrap);
   }
 
   async function syncCalendar() {
