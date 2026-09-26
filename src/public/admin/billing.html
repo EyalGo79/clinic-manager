@@ -138,12 +138,13 @@
   <div class="main">
     <div class="topbar">
       <h2>חיובים חודשיים</h2>
-      <div style="display:flex;align-items:center;gap:12px;">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
         <div class="month-nav">
           <button onclick="changeMonth(-1)">‹</button>
           <span id="monthLabel"></span>
           <button onclick="changeMonth(1)">›</button>
         </div>
+        <span id="topbarTotal" style="font-size:15px;font-weight:700;color:#2d3748;background:#edf2f7;border-radius:8px;padding:5px 14px;display:none;"></span>
         <button id="lockBtn" class="btn btn-ghost btn-sm" onclick="lockMonth()" style="display:none;">🔒 נעל חודש</button>
         <button id="unlockBtn" class="btn btn-ghost btn-sm" onclick="unlockMonth()" style="display:none;">🔓 בטל נעילה</button>
       </div>
@@ -334,6 +335,8 @@
         tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#718096;padding:24px;">אין נתונים לחודש זה</td></tr>';
         document.getElementById('billingCards').innerHTML = '';
         document.getElementById('footTotal').textContent = '—';
+        const tt = document.getElementById('topbarTotal');
+        tt.textContent = ''; tt.style.display = 'none';
         return;
       }
 
@@ -368,6 +371,9 @@
       renderBillingCards(therapists, totalAmount);
       document.getElementById('footTotal').textContent =
         '₪' + totalAmount.toLocaleString('he-IL', {maximumFractionDigits:0});
+      const tt = document.getElementById('topbarTotal');
+      tt.textContent = 'סה"כ: ₪' + totalAmount.toLocaleString('he-IL', {maximumFractionDigits:0});
+      tt.style.display = '';
 
       // הצג כפתור נעילה/ביטול נעילה לפי מצב snapshot
       if (isPast) {
