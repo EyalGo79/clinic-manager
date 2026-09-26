@@ -48,6 +48,68 @@
     }
     .note-input:focus { outline:none; border-color:#4299e1; background:#fff; }
     .note-input::placeholder { color:#a0aec0; }
+
+    /* ===== כרטיסיות מובייל ===== */
+    .billing-cards { display:none; }
+
+    @media (max-width:700px) {
+      .month-nav { gap:10px; }
+      .month-nav span { font-size:14px; min-width:90px; }
+
+      /* הסתר טבלה והצג כרטיסיות */
+      .billing-table-wrap { display:none; }
+      .billing-cards { display:flex; flex-direction:column; gap:12px; }
+
+      /* כרטיסיית מדרגות — מתקפלת */
+      .tiers-card h3 { font-size:13px; margin-bottom:0; color:#718096; cursor:pointer;
+                       display:flex; justify-content:space-between; align-items:center; }
+      .tiers-card .tiers-body { overflow:hidden; max-height:0; transition:max-height .25s ease; }
+      .tiers-card.open .tiers-body { max-height:200px; }
+      .tiers-card h3::after { content:'›'; transform:rotate(90deg); display:inline-block;
+                              transition:transform .2s; font-size:18px; color:#a0aec0; }
+      .tiers-card.open h3::after { transform:rotate(-90deg); }
+      .tiers-body-inner { padding-top:10px; display:flex; gap:6px; flex-wrap:wrap; }
+
+      /* כרטיסיית מטפל */
+      .therapist-card {
+        background:#fff; border-radius:10px;
+        box-shadow:0 1px 4px rgba(0,0,0,.08);
+        padding:14px 16px;
+      }
+      .therapist-card-header {
+        display:flex; justify-content:space-between; align-items:flex-start;
+        margin-bottom:10px;
+      }
+      .therapist-card-name { font-weight:700; font-size:15px; }
+      .therapist-card-email { font-size:11px; color:#718096; margin-top:1px; }
+      .therapist-card-total { font-size:18px; font-weight:700; color:#2d3748; white-space:nowrap; padding-right:8px; }
+
+      .therapist-card-rows { display:grid; grid-template-columns:1fr 1fr; gap:6px 12px; margin-bottom:10px; }
+      .therapist-card-row { display:flex; flex-direction:column; gap:2px; }
+      .therapist-card-row .lbl { font-size:11px; color:#718096; }
+      .therapist-card-row .val { font-size:13px; }
+
+      .therapist-card-note textarea {
+        width:100%; border:1px solid #e2e8f0; border-radius:6px; padding:6px 9px;
+        font-size:13px; resize:none; font-family:inherit; color:#2d3748;
+        background:#f7fafc; transition:border-color .15s; margin-bottom:8px;
+      }
+      .therapist-card-note textarea:focus { outline:none; border-color:#4299e1; background:#fff; }
+
+      .therapist-card-footer { display:flex; justify-content:flex-end; }
+
+      /* כרטיסיית סה"כ */
+      .billing-total-card {
+        background:#fff; border-radius:10px; box-shadow:0 1px 4px rgba(0,0,0,.08);
+        padding:14px 16px; display:flex; justify-content:space-between; align-items:center;
+      }
+      .billing-total-card .lbl { font-size:14px; font-weight:700; color:#4a5568; }
+      .billing-total-card .val { font-size:20px; font-weight:700; }
+
+      /* topbar מובייל */
+      .topbar { flex-wrap:wrap; gap:8px; }
+      #lockBtn, #unlockBtn { font-size:12px; padding:4px 9px; }
+    }
   </style>
 </head>
 <body>
@@ -89,18 +151,21 @@
 
     <div class="content">
       <!-- מדרגות -->
-      <div class="card" style="margin-bottom:20px;">
-        <h3 style="font-size:14px;margin-bottom:12px;color:#718096;">מדרגות חיוב</h3>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <span class="rate-chip">עד 4 ש' — 50 ₪</span>
-          <span class="rate-chip">4–16 ש' — 47 ₪</span>
-          <span class="rate-chip">16–24 ש' — 37 ₪</span>
-          <span class="rate-chip">24–32 ש' — 32 ₪</span>
-          <span class="rate-chip">מעל 32 ש' — 27 ₪</span>
+      <div class="card tiers-card" style="margin-bottom:20px;" onclick="this.classList.toggle('open')">
+        <h3>מדרגות חיוב</h3>
+        <div class="tiers-body">
+          <div class="tiers-body-inner">
+            <span class="rate-chip">עד 4 ש' — 50 ₪</span>
+            <span class="rate-chip">4–16 ש' — 47 ₪</span>
+            <span class="rate-chip">16–24 ש' — 37 ₪</span>
+            <span class="rate-chip">24–32 ש' — 32 ₪</span>
+            <span class="rate-chip">מעל 32 ש' — 27 ₪</span>
+          </div>
         </div>
       </div>
 
-      <div class="card">
+      <!-- טבלה — דסקטופ -->
+      <div class="card billing-table-wrap">
         <div class="table-wrap">
           <table>
             <thead><tr>
@@ -129,6 +194,9 @@
           </table>
         </div>
       </div>
+
+      <!-- כרטיסיות — מובייל -->
+      <div class="billing-cards" id="billingCards"></div>
     </div>
   </div>
 </div>
@@ -264,6 +332,7 @@
 
       if (!therapists.length) {
         tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#718096;padding:24px;">אין נתונים לחודש זה</td></tr>';
+        document.getElementById('billingCards').innerHTML = '';
         document.getElementById('footTotal').textContent = '—';
         return;
       }
@@ -294,7 +363,9 @@
         </tr>`;
       }).join('');
 
+      // כרטיסיות מובייל
       const totalAmount = therapists.reduce((s, t) => s + t.totalAmount, 0);
+      renderBillingCards(therapists, totalAmount);
       document.getElementById('footTotal').textContent =
         '₪' + totalAmount.toLocaleString('he-IL', {maximumFractionDigits:0});
 
@@ -307,6 +378,59 @@
     } catch (e) {
       tbody.innerHTML = '<tr><td colspan="7" style="color:#e53e3e;text-align:center;">שגיאה בטעינה</td></tr>';
     }
+  }
+
+  function renderBillingCards(therapists, totalAmount) {
+    const container = document.getElementById('billingCards');
+    const fmtILS = n => '₪' + n.toLocaleString('he-IL', {maximumFractionDigits:0});
+
+    const cards = therapists.map(t => {
+      const extraCost = t.hasSlot ? Math.max(0, t.totalAmount - t.basePrice) : 0;
+      const slotVal = t.hasSlot ? fmtILS(t.basePrice) : '—';
+      const extraVal = t.hasSlot && t.extraHours > 0
+        ? `${t.extraHours}ש = ${fmtILS(extraCost)}`
+        : t.hasSlot ? '—'
+        : `${t.totalHours}ש × ₪${t.ratePerHour}`;
+      const adjTotal = (t.creditHours||0)*(t.extraRatePerHour||t.ratePerHour) + (t.discountAmount||0);
+      const adjVal = adjTotal > 0 ? `<span style="color:#276749;">−${fmtILS(adjTotal)}</span>` : '—';
+      const safeNote = (t.note || '').replace(/"/g, '&quot;');
+
+      return `<div class="therapist-card">
+        <div class="therapist-card-header">
+          <div>
+            <div class="therapist-card-name">${t.name}</div>
+            <div class="therapist-card-email">${t.email}</div>
+          </div>
+          <div class="therapist-card-total">${fmtILS(t.totalAmount)}</div>
+        </div>
+        <div class="therapist-card-rows">
+          <div class="therapist-card-row">
+            <span class="lbl">ססיה קבועה</span>
+            <span class="val">${t.hasSlot ? `<span class="slot-chip">${slotVal}</span>` : slotVal}</span>
+          </div>
+          <div class="therapist-card-row">
+            <span class="lbl">שעות נוספות</span>
+            <span class="val">${t.hasSlot && t.extraHours === 0 ? '<span style="color:#718096;">—</span>' : `<span class="rate-chip">${extraVal}</span>`}</span>
+          </div>
+          <div class="therapist-card-row">
+            <span class="lbl">זיכויים</span>
+            <span class="val">${adjVal}</span>
+          </div>
+        </div>
+        <div class="therapist-card-note">
+          <textarea rows="1" placeholder="הערה (למשל: שילם במזומן)..." onchange="saveNote(${t.id}, this.value)">${safeNote}</textarea>
+        </div>
+        <div class="therapist-card-footer">
+          <button class="btn btn-ghost btn-sm" onclick="showDetail(${t.id})">פרוט ›</button>
+        </div>
+      </div>`;
+    }).join('');
+
+    container.innerHTML = cards + `
+      <div class="billing-total-card">
+        <span class="lbl">סה"כ חודשי</span>
+        <span class="val">${fmtILS(totalAmount)}</span>
+      </div>`;
   }
 
   async function saveNote(therapistId, note) {
