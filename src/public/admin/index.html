@@ -355,14 +355,21 @@
       </div>`
     ).join('');
 
-    drawRevenueChart(data, seriesIds, seriesNames);
+    const isMobile = wrap.clientWidth < 500;
+    if (isMobile) {
+      document.getElementById('chartLegend').innerHTML = '';
+      drawRevenueChart(data, ['__total__'], ['סה"כ']);
+    } else {
+      drawRevenueChart(data, seriesIds, seriesNames);
+    }
   }
 
   function drawRevenueChart(data, seriesIds, seriesNames) {
     const wrap    = document.getElementById('chartWrap');
     const svg     = document.getElementById('revenueChart');
     const tooltip = document.getElementById('chartTooltip');
-    const colors  = slotColors();
+    const isMobile = seriesIds.length === 1 && seriesIds[0] === '__total__';
+    const colors  = isMobile ? [slotColors()[0]] : slotColors();
     const SURFACE = window.matchMedia('(prefers-color-scheme: dark)').matches ? '#1a1a19' : '#fcfcfb';
     const GAP     = 2; // 2px surface gap between stacked segments
 
@@ -399,9 +406,14 @@
       let cumulH = 0;
       const baseY = yPos(0);
 
+      // במובייל (seriesIds=['__total__']) — עמודה יחידה בסה"כ
+      const effectiveSegments = isMobile
+        ? [col.total]
+        : col.segments;
+
       // בנה סגמנטים מלמטה למעלה — כל סגמנט מלבן עם 2px gap
       const segs = [];
-      col.segments.forEach((val, si) => {
+      effectiveSegments.forEach((val, si) => {
         if (val <= 0) return;
         const segH = (val / yMax) * plotH;
         segs.push({ val, si, segH, y: baseY - cumulH - segH });
@@ -460,20 +472,25 @@
       const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
       // בנה תוכן tooltip
-      const rows = seriesIds.map((id, si) => {
-        const v = col.segments[si];
-        if (v <= 0) return '';
-        return `<div class="tt-row">
-          <div class="tt-dot" style="background:${colors[si % colors.length]}"></div>
-          <span class="tt-name">${esc(seriesNames[si])}</span>
-          <span class="tt-val">${fmtILS(v)}</span>
-        </div>`;
-      }).join('');
+      const rows = isMobile
+        ? `<div class="tt-row">
+            <div class="tt-dot" style="background:${colors[0]}"></div>
+            <span class="tt-val">${fmtILS(col.total)}</span>
+           </div>`
+        : seriesIds.map((id, si) => {
+            const v = col.segments[si];
+            if (v <= 0) return '';
+            return `<div class="tt-row">
+              <div class="tt-dot" style="background:${colors[si % colors.length]}"></div>
+              <span class="tt-name">${esc(seriesNames[si])}</span>
+              <span class="tt-val">${fmtILS(v)}</span>
+            </div>`;
+          }).join('');
 
       tooltip.innerHTML = `
         <div class="tt-month">${col.label}</div>
         ${rows}
-        ${seriesIds.length > 1 ? `<div class="tt-total"><span>סה"כ</span><span>${fmtILS(col.total)}</span></div>` : ''}`;
+        ${!isMobile && seriesIds.length > 1 ? `<div class="tt-total"><span>סה"כ</span><span>${fmtILS(col.total)}</span></div>` : ''}`;
       tooltip.classList.add('visible');
 
       // מיקום
@@ -529,9 +546,30 @@
     // redraw on resize
     if (svg._ro) svg._ro.disconnect();
     svg._ro = new ResizeObserver(() => {
-      if (wrap.clientWidth !== W) {
+      const newW = wrap.clientWidth;
+      const crossedBreakpoint = (newW < 500) !== isMobile;
+      if (newW !== W) {
         hideTip();
-        drawRevenueChart(data, seriesIds, seriesNames);
+        if (crossedBreakpoint) {
+          // מעבר בין mobile/desktop — rebuild legend גם
+          const legendEl = document.getElementById('chartLegend');
+          if (newW < 500) {
+            legendEl.innerHTML = '';
+            drawRevenueChart(data, ['__total__'], ['סה"כ']);
+          } else {
+            const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+            const colors2 = slotColors();
+            legendEl.innerHTML = seriesIds.map((id, si) =>
+              `<div class="chart-legend-item">
+                <div class="chart-legend-swatch" style="background:${colors2[si % colors2.length]}"></div>
+                <span>${esc(seriesNames[si])}</span>
+              </div>`
+            ).join('');
+            drawRevenueChart(data, seriesIds, seriesNames);
+          }
+        } else {
+          drawRevenueChart(data, seriesIds, seriesNames);
+        }
       }
     });
     svg._ro.observe(wrap);
