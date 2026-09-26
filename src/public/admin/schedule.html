@@ -124,6 +124,11 @@
         <input type="date" class="form-control" id="fNewRepeatUntil">
       </div>
     </div>
+    <div class="form-group" style="margin-top:8px;padding:8px 12px;background:#fff5f5;border:1.5px solid #feb2b2;border-radius:7px;">
+      <label style="display:flex;align-items:center;gap:8px;color:#c53030;font-weight:600;cursor:pointer;margin:0;">
+        <input type="checkbox" id="forceOverride"> דרוס בדיקות קונפליקט (מנהל)
+      </label>
+    </div>
     <div id="modalAlert" class="alert"></div>
 
     <div style="display:flex;gap:10px;justify-content:space-between;margin-top:8px;">
@@ -155,6 +160,18 @@
     <div style="display:flex;gap:8px;justify-content:flex-end;">
       <button class="btn btn-ghost" onclick="closeCancelModal()">חזרה</button>
       <button class="btn btn-danger" onclick="confirmCancel()">אשר ביטול</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal אישור דריסת קונפליקט -->
+<div class="modal-overlay" id="forceModalOverlay">
+  <div class="modal" style="width:380px;">
+    <h3 style="color:#c53030;">⚠️ אישור דריסת קונפליקט</h3>
+    <p style="font-size:14px;color:#4a5568;margin:12px 0 20px;">האם אתה בטוח שברצונך לשמור את הפגישה תוך דריסת בדיקות הקונפליקט?<br><br>פעולה זו עלולה ליצור חפיפה בלוח הזמנים.</p>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-ghost" onclick="closeForceModal()">ביטול</button>
+      <button class="btn btn-danger" onclick="confirmForceSave()">כן, שמור בכל זאת</button>
     </div>
   </div>
 </div>
@@ -420,6 +437,7 @@
     document.getElementById('updateSeriesCheck').checked = false;
     document.getElementById('updateSeriesExtra').style.display = 'none';
     document.getElementById('fNewRepeatUntil').value = '';
+    document.getElementById('forceOverride').checked = false;
     document.getElementById('cancelBtn').style.display = 'none';
     document.getElementById('saveBtn').style.display = '';
     hideAlert('modalAlert');
@@ -442,6 +460,7 @@
     document.getElementById('updateSeriesCheck').checked = false;
     document.getElementById('updateSeriesExtra').style.display = 'none';
     document.getElementById('fNewRepeatUntil').value = '';
+    document.getElementById('forceOverride').checked = false;
     endUserModified = true;
 
     const isCancelled = s.status === 'cancelled' || s.status === 'cancelled_charged';
@@ -459,10 +478,13 @@
 
   function closeModal() { document.getElementById('modalOverlay').classList.remove('open'); }
 
-  async function saveSession() {
+  let pendingSavePayload = null;
+
+  async function saveSession(force = false) {
     const id = document.getElementById('editSessionId').value;
     const isRecurring = document.getElementById('fRecurring').checked;
     const repeatUntil = document.getElementById('fRepeatUntil').value;
+    const forceOverride = force || document.getElementById('forceOverride').checked;
     const body = {
       therapist_id: parseInt(document.getElementById('fTherapist').value),
       start_time: localToISO(document.getElementById('fStart').value),
@@ -473,6 +495,12 @@
       showAlert('modalAlert', 'יש למלא את כל שדות החובה', 'error'); return;
     }
 
+    if (forceOverride && !force) {
+      pendingSavePayload = { id, isRecurring, repeatUntil, body };
+      document.getElementById('forceModalOverlay').classList.add('open');
+      return;
+    }
+
     if (isRecurring && !id) {
       if (!repeatUntil) {
         showAlert('modalAlert', 'יש לבחור תאריך סיום לחזרה השבועית', 'error'); return;
@@ -481,7 +509,7 @@
         const res = await fetch('/api/sessions/recurring', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...body, repeat_until: repeatUntil }),
+          body: JSON.stringify({ ...body, repeat_until: repeatUntil, force: forceOverride }),
         });
         const data = await res.json();
         if (!res.ok) { showAlert('modalAlert', data.error || 'שגיאה', 'error'); return; }
@@ -500,7 +528,9 @@
       const res = await fetch(id ? `/api/sessions/${id}` : '/api/sessions', {
         method: id ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(id ? { ...body, update_series: updateSeries, repeat_until: newRepeatUntil } : body),
+        body: JSON.stringify(id
+          ? { ...body, update_series: updateSeries, repeat_until: newRepeatUntil, force: forceOverride }
+          : { ...body, force: forceOverride }),
       });
       const data = await res.json();
       if (!res.ok) { showAlert('modalAlert', data.error || 'שגיאה', 'error'); return; }
@@ -510,6 +540,17 @@
     } catch (e) {
       showAlert('modalAlert', 'שגיאת רשת', 'error');
     }
+  }
+
+  function closeForceModal() {
+    document.getElementById('forceModalOverlay').classList.remove('open');
+    pendingSavePayload = null;
+  }
+
+  async function confirmForceSave() {
+    document.getElementById('forceModalOverlay').classList.remove('open');
+    await saveSession(true);
+    pendingSavePayload = null;
   }
 
   function cancelSession() {

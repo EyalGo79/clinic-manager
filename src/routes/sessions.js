@@ -183,7 +183,7 @@ router.get('/', isAdminOrTherapist, async (req, res) => {
 
 // POST /api/sessions — יצירת פגישה חדשה
 router.post('/', isAdminOrTherapist, async (req, res) => {
-  const { therapist_id, start_time, end_time, notes, google_event_id } = req.body;
+  const { therapist_id, start_time, end_time, notes, google_event_id, force } = req.body;
   if (!therapist_id || !start_time || !end_time) {
     return res.status(400).json({ error: 'therapist_id, start_time ו-end_time הם חובה' });
   }
@@ -195,10 +195,14 @@ router.post('/', isAdminOrTherapist, async (req, res) => {
     return res.status(400).json({ error: 'שעת סיום חייבת להיות אחרי שעת התחלה' });
   }
 
+  const adminForce = req.user.role === 'admin' && force === true;
+
   try {
-    const conflict = await getConflict(therapist_id, start_time, end_time);
-    if (conflict) {
-      return res.status(409).json({ error: formatConflictError(conflict) });
+    if (!adminForce) {
+      const conflict = await getConflict(therapist_id, start_time, end_time);
+      if (conflict) {
+        return res.status(409).json({ error: formatConflictError(conflict) });
+      }
     }
 
     const result = await pool.query(
@@ -219,7 +223,7 @@ router.post('/', isAdminOrTherapist, async (req, res) => {
 
 // PUT /api/sessions/:id — עדכון פגישה
 router.put('/:id', isAdminOrTherapist, async (req, res) => {
-  const { start_time, end_time, notes, update_series, repeat_until } = req.body;
+  const { start_time, end_time, notes, update_series, repeat_until, force } = req.body;
   try {
     const existing = await pool.query('SELECT * FROM sessions WHERE id = $1', [req.params.id]);
     if (!existing.rows[0]) return res.status(404).json({ error: 'לא נמצא' });
@@ -236,6 +240,8 @@ router.put('/:id', isAdminOrTherapist, async (req, res) => {
       return res.status(400).json({ error: 'שעת סיום חייבת להיות אחרי שעת התחלה' });
     }
 
+    const adminForce = req.user.role === 'admin' && force === true;
+
     // עדכון סדרה עתידית — שנה שעות על כל הפגישות מהיום הזה קדימה
     if (update_series && session.series_id && start_time && end_time) {
       const origStart = new Date(session.start_time);
@@ -251,13 +257,15 @@ router.put('/:id', isAdminOrTherapist, async (req, res) => {
         [session.series_id, session.start_time]
       );
 
-      for (const occ of futureRes.rows) {
-        const occNewStart = new Date(new Date(occ.start_time).getTime() + startDiffMs);
-        const occNewEnd = new Date(occNewStart.getTime() + durationMs);
-        const conflict = await getConflict(session.therapist_id, occNewStart, occNewEnd, occ.id);
-        if (conflict) {
-          const occDate = occNewStart.toLocaleDateString('he-IL', { timeZone: 'Asia/Jerusalem', weekday: 'long', day: 'numeric', month: 'long' });
-          return res.status(409).json({ error: `קונפליקט בתאריך ${occDate}: ${formatConflictError(conflict)}` });
+      if (!adminForce) {
+        for (const occ of futureRes.rows) {
+          const occNewStart = new Date(new Date(occ.start_time).getTime() + startDiffMs);
+          const occNewEnd = new Date(occNewStart.getTime() + durationMs);
+          const conflict = await getConflict(session.therapist_id, occNewStart, occNewEnd, occ.id);
+          if (conflict) {
+            const occDate = occNewStart.toLocaleDateString('he-IL', { timeZone: 'Asia/Jerusalem', weekday: 'long', day: 'numeric', month: 'long' });
+            return res.status(409).json({ error: `קונפליקט בתאריך ${occDate}: ${formatConflictError(conflict)}` });
+          }
         }
       }
 
@@ -309,9 +317,11 @@ router.put('/:id', isAdminOrTherapist, async (req, res) => {
       return res.json({ updated: futureRes.rows.length });
     }
 
-    const conflict = await getConflict(session.therapist_id, newStart, newEnd, session.id);
-    if (conflict) {
-      return res.status(409).json({ error: formatConflictError(conflict) });
+    if (!adminForce) {
+      const conflict = await getConflict(session.therapist_id, newStart, newEnd, session.id);
+      if (conflict) {
+        return res.status(409).json({ error: formatConflictError(conflict) });
+      }
     }
 
     // קיצור ברגע האחרון — שמור end_time מקורי לצורך חיוב
@@ -346,7 +356,7 @@ router.put('/:id', isAdminOrTherapist, async (req, res) => {
 
 // POST /api/sessions/recurring — יצירת סדרת פגישות שבועיות
 router.post('/recurring', isAdminOrTherapist, async (req, res) => {
-  const { therapist_id, start_time, end_time, notes, repeat_until } = req.body;
+  const { therapist_id, start_time, end_time, notes, repeat_until, force } = req.body;
   if (!therapist_id || !start_time || !end_time || !repeat_until) {
     return res.status(400).json({ error: 'therapist_id, start_time, end_time ו-repeat_until הם חובה' });
   }
@@ -382,16 +392,20 @@ router.post('/recurring', isAdminOrTherapist, async (req, res) => {
     return res.status(400).json({ error: 'לא נמצאו מועדים בטווח שנבחר' });
   }
 
+  const adminForce = req.user.role === 'admin' && force === true;
+
   // בדוק קונפליקטים לכל המועדים לפני הכנסה
-  for (const occ of occurrences) {
-    const conflict = await getConflict(therapist_id, occ.start, occ.end);
-    if (conflict) {
-      const occDate = occ.start.toLocaleDateString('he-IL', {
-        timeZone: 'Asia/Jerusalem', weekday: 'long', day: 'numeric', month: 'long',
-      });
-      return res.status(409).json({
-        error: `קונפליקט בתאריך ${occDate}: ${formatConflictError(conflict)}`,
-      });
+  if (!adminForce) {
+    for (const occ of occurrences) {
+      const conflict = await getConflict(therapist_id, occ.start, occ.end);
+      if (conflict) {
+        const occDate = occ.start.toLocaleDateString('he-IL', {
+          timeZone: 'Asia/Jerusalem', weekday: 'long', day: 'numeric', month: 'long',
+        });
+        return res.status(409).json({
+          error: `קונפליקט בתאריך ${occDate}: ${formatConflictError(conflict)}`,
+        });
+      }
     }
   }
 
