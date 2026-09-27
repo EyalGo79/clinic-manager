@@ -16,6 +16,36 @@
     .chip-active  { background:#c6f6d5; color:#276749; }
     .chip-future  { background:#bee3f8; color:#2a4365; }
     .chip-ended   { background:#fed7d7; color:#742a2a; }
+
+    /* ===== כרטיסיות מובייל ===== */
+    .contracts-cards { display:none; }
+
+    @media (max-width:700px) {
+      .contracts-table-wrap { display:none; }
+      .contracts-cards { display:flex; flex-direction:column; gap:12px; }
+
+      .contract-card {
+        background:#fff; border-radius:10px;
+        box-shadow:0 1px 4px rgba(0,0,0,.08);
+        padding:14px 16px;
+      }
+      .contract-card-header {
+        display:flex; justify-content:space-between; align-items:flex-start;
+        margin-bottom:10px;
+      }
+      .contract-card-name { font-weight:700; font-size:15px; }
+      .contract-card-rows {
+        display:grid; grid-template-columns:1fr 1fr;
+        gap:6px 12px; margin-bottom:12px;
+      }
+      .contract-card-row { display:flex; flex-direction:column; gap:2px; }
+      .contract-card-row .lbl { font-size:11px; color:#718096; }
+      .contract-card-row .val { font-size:13px; }
+      .contract-card-footer {
+        display:flex; justify-content:flex-end; gap:8px;
+        border-top:1px solid #f0f4f8; padding-top:10px;
+      }
+    }
   </style>
 </head>
 <body>
@@ -52,15 +82,17 @@
     <div class="content">
       <div id="alertBox" class="alert"></div>
 
-      <div class="card">
-        <div style="padding:12px 16px 0;display:flex;gap:16px;align-items:center;">
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px;">
-            <input type="radio" name="showFilter" value="active" checked onchange="renderTable()"> פעילות ועתידיות
-          </label>
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px;">
-            <input type="radio" name="showFilter" value="all" onchange="renderTable()"> הכל
-          </label>
-        </div>
+      <div style="padding:4px 0 12px;display:flex;gap:16px;align-items:center;">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px;">
+          <input type="radio" name="showFilter" value="active" checked onchange="renderTable()"> פעילות ועתידיות
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px;">
+          <input type="radio" name="showFilter" value="all" onchange="renderTable()"> הכל
+        </label>
+      </div>
+
+      <!-- טבלה — דסקטופ -->
+      <div class="card contracts-table-wrap">
         <div class="table-wrap">
           <table>
             <thead><tr>
@@ -81,6 +113,9 @@
           </table>
         </div>
       </div>
+
+      <!-- כרטיסיות — מובייל -->
+      <div class="contracts-cards" id="contractsCards"></div>
     </div>
   </div>
 </div>
@@ -247,6 +282,7 @@
     const visible = filter === 'all' ? contracts : contracts.filter(c => contractStatus(c) !== 'ended');
     if (!visible.length) {
       tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#718096;padding:24px;">אין ססיות רשומות</td></tr>';
+      document.getElementById('contractsCards').innerHTML = '';
       return;
     }
     tbody.innerHTML = visible.map(c => {
@@ -270,6 +306,61 @@
           <button class="btn btn-danger btn-sm" onclick="deleteContract(${c.id})">🗑️</button>
         </td>
       </tr>`;
+    }).join('');
+
+    renderContractCards(visible);
+  }
+
+  function renderContractCards(visible) {
+    const container = document.getElementById('contractsCards');
+    if (!visible.length) { container.innerHTML = ''; return; }
+
+    container.innerHTML = visible.map(c => {
+      const rateStr = c.slot_rate
+        ? '₪' + parseFloat(c.slot_rate).toFixed(0)
+        : '~₪' + (c.monthly_rate || 0).toFixed(0);
+      const totalStr = '₪' + (c.total_amount || 0).toLocaleString('he-IL', { maximumFractionDigits: 0 });
+      const weeklyHrs = c.weekly_slot_minutes ? (c.weekly_slot_minutes / 60).toFixed(1) + ' ש\'' : '—';
+      return `<div class="contract-card">
+        <div class="contract-card-header">
+          <div class="contract-card-name">${c.therapist_name || '—'}</div>
+          ${statusBadge(c)}
+        </div>
+        <div class="contract-card-rows">
+          <div class="contract-card-row">
+            <span class="lbl">תחילה</span>
+            <span class="val">${fmtDate(c.start_date)}</span>
+          </div>
+          <div class="contract-card-row">
+            <span class="lbl">סיום</span>
+            <span class="val">${fmtDate(c.end_date)}</span>
+          </div>
+          <div class="contract-card-row">
+            <span class="lbl">טווח</span>
+            <span class="val">${c.duration_months} חודשים</span>
+          </div>
+          <div class="contract-card-row">
+            <span class="lbl">שעות/שבוע</span>
+            <span class="val">${weeklyHrs}</span>
+          </div>
+          <div class="contract-card-row">
+            <span class="lbl">₪/חודש</span>
+            <span class="val">${rateStr}</span>
+          </div>
+          <div class="contract-card-row">
+            <span class="lbl">סה"כ לתקופה</span>
+            <span class="val">${totalStr}</span>
+          </div>
+          <div class="contract-card-row">
+            <span class="lbl">חידוש אוטומטי</span>
+            <span class="val">${c.auto_renew ? '<span class="badge badge-green">כן</span>' : '<span class="badge badge-gray">לא</span>'}</span>
+          </div>
+        </div>
+        <div class="contract-card-footer">
+          <button class="btn btn-ghost btn-sm" onclick="editContract(${c.id})">✏️ עריכה</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteContract(${c.id})">🗑️ מחיקה</button>
+        </div>
+      </div>`;
     }).join('');
   }
 
