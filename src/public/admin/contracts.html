@@ -34,6 +34,8 @@
         margin-bottom:10px;
       }
       .contract-card-name { font-weight:700; font-size:15px; }
+      .contract-card-total { font-size:18px; font-weight:700; color:#2d3748; white-space:nowrap; padding-right:8px; }
+
       .contract-card-rows {
         display:grid; grid-template-columns:1fr 1fr;
         gap:6px 12px; margin-bottom:12px;
@@ -316,15 +318,15 @@
     if (!visible.length) { container.innerHTML = ''; return; }
 
     container.innerHTML = visible.map(c => {
-      const rateStr = c.slot_rate
+      const rateStr   = c.slot_rate
         ? '₪' + parseFloat(c.slot_rate).toFixed(0)
         : '~₪' + (c.monthly_rate || 0).toFixed(0);
-      const totalStr = '₪' + (c.total_amount || 0).toLocaleString('he-IL', { maximumFractionDigits: 0 });
+      const totalStr  = '₪' + (c.total_amount || 0).toLocaleString('he-IL', { maximumFractionDigits: 0 });
       const weeklyHrs = c.weekly_slot_minutes ? (c.weekly_slot_minutes / 60).toFixed(1) + ' ש\'' : '—';
       return `<div class="contract-card">
         <div class="contract-card-header">
           <div class="contract-card-name">${c.therapist_name || '—'}</div>
-          ${statusBadge(c)}
+          <div class="contract-card-total">${totalStr}</div>
         </div>
         <div class="contract-card-rows">
           <div class="contract-card-row">
@@ -348,12 +350,12 @@
             <span class="val">${rateStr}</span>
           </div>
           <div class="contract-card-row">
-            <span class="lbl">סה"כ לתקופה</span>
-            <span class="val">${totalStr}</span>
-          </div>
-          <div class="contract-card-row">
             <span class="lbl">חידוש אוטומטי</span>
             <span class="val">${c.auto_renew ? '<span class="badge badge-green">כן</span>' : '<span class="badge badge-gray">לא</span>'}</span>
+          </div>
+          <div class="contract-card-row">
+            <span class="lbl">סטטוס</span>
+            <span class="val">${statusBadge(c)}</span>
           </div>
         </div>
         <div class="contract-card-footer">
