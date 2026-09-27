@@ -355,7 +355,8 @@
       </div>`
     ).join('');
 
-    const isMobile = wrap.clientWidth < 500;
+    const chartWrap = document.getElementById('chartWrap');
+    const isMobile = chartWrap.clientWidth < 500;
     if (isMobile) {
       document.getElementById('chartLegend').innerHTML = '';
       drawRevenueChart(data, ['__total__'], ['סה"כ']);
