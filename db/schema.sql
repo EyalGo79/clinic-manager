@@ -89,6 +89,9 @@ CREATE TABLE IF NOT EXISTS rate_tiers (
   effective_from DATE DEFAULT CURRENT_DATE
 );
 
+-- תעריף מותאם לזיכוי שעות (NULL = לפי תעריף המטפל)
+ALTER TABLE billing_adjustments ADD COLUMN IF NOT EXISTS rate DECIMAL(8,2);
+
 -- עמודות נוספות על therapists
 ALTER TABLE therapists ADD COLUMN IF NOT EXISTS monthly_discount DECIMAL(8,2);
 ALTER TABLE therapists ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT false;

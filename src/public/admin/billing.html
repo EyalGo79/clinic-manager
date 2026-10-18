@@ -229,9 +229,13 @@
             </select>
           </div>
           <div class="form-group" style="margin:0;">
-            <label style="font-size:12px;" id="adjValueLabel">שעות לזיכוי</label>
-            <input type="number" class="form-control" id="adjValue" style="font-size:13px;" min="0" step="0.25" placeholder="0">
+            <label style="font-size:12px;" id="adjValueLabel">דקות לזיכוי</label>
+            <input type="number" class="form-control" id="adjValue" style="font-size:13px;" min="0" step="1" placeholder="0">
           </div>
+        </div>
+        <div class="form-group" id="adjRateGroup" style="margin-bottom:8px;">
+          <label style="font-size:12px;">תעריף לשעה (₪) — אופציונלי, ברירת מחדל תעריף המטפל</label>
+          <input type="number" class="form-control" id="adjRate" style="font-size:13px;" min="0" step="0.5" placeholder="למשל 27">
         </div>
         <div class="form-group" style="margin-bottom:8px;">
           <label style="font-size:12px;">הערה (אופציונלי)</label>
@@ -350,7 +354,7 @@
           : t.hasSlot
           ? `<span style="color:#718096;font-size:13px;">&#8212;</span>`
           : `<span class="rate-chip">${t.totalHours}ש &times; &#8362;${t.ratePerHour}</span>`;
-        const adjTotal = ((t.creditHours||0)*(t.extraRatePerHour||t.ratePerHour) + (t.discountAmount||0));
+        const adjTotal = ((t.creditValue != null ? t.creditValue : (t.creditHours||0)*(t.extraRatePerHour||t.ratePerHour)) + (t.discountAmount||0));
         const adjCell = adjTotal > 0
           ? `<span style="color:#276749;font-size:13px;">&#8722;&#8362;${adjTotal.toLocaleString('he-IL',{maximumFractionDigits:0})}</span>`
           : `<span style="color:#718096;font-size:13px;">&#8212;</span>`;
@@ -397,7 +401,7 @@
         ? `${t.extraHours}ש = ${fmtILS(extraCost)}`
         : t.hasSlot ? '—'
         : `${t.totalHours}ש × ₪${t.ratePerHour}`;
-      const adjTotal = (t.creditHours||0)*(t.extraRatePerHour||t.ratePerHour) + (t.discountAmount||0);
+      const adjTotal = (t.creditValue != null ? t.creditValue : (t.creditHours||0)*(t.extraRatePerHour||t.ratePerHour)) + (t.discountAmount||0);
       const adjVal = adjTotal > 0 ? `<span style="color:#276749;">−${fmtILS(adjTotal)}</span>` : '—';
       const safeNote = (t.note || '').replace(/"/g, '&quot;');
 
@@ -481,7 +485,10 @@
   function renderBreakdown(data, adjData) {
     const box = document.getElementById('billingBreakdown');
     const adjs = adjData.adjustments || [];
-    const creditHours = adjs.filter(a => a.type === 'credit_hours').reduce((s, a) => s + parseFloat(a.value), 0);
+    const creditRows = adjs.filter(a => a.type === 'credit_hours');
+    const creditHours = creditRows.reduce((s, a) => s + parseFloat(a.value), 0);
+    const creditValue = creditRows.reduce((s, a) =>
+      s + parseFloat(a.value) * (a.rate != null ? parseFloat(a.rate) : data.ratePerHour), 0);
     const discountAmount = adjs.filter(a => a.type === 'discount_amount').reduce((s, a) => s + parseFloat(a.value), 0);
 
     let html = '';
@@ -497,13 +504,14 @@
     }
 
     if (creditHours > 0) {
-      html += `<div class="row credit"><span>זיכוי שעות (${creditHours} ש')</span><span>−₪${(creditHours * data.ratePerHour).toLocaleString('he-IL',{maximumFractionDigits:0})}</span></div>`;
+      const mins = Math.round(creditHours * 60);
+      html += `<div class="row credit"><span>זיכוי שעות (${mins} ד')</span><span>−₪${creditValue.toLocaleString('he-IL',{maximumFractionDigits:0})}</span></div>`;
     }
     if (discountAmount > 0) {
       html += `<div class="row discount"><span>הנחה</span><span>−₪${discountAmount.toLocaleString('he-IL',{maximumFractionDigits:0})}</span></div>`;
     }
 
-    const finalAmount = Math.max(0, data.totalAmount - (creditHours * data.ratePerHour) - discountAmount);
+    const finalAmount = Math.max(0, data.totalAmount - creditValue - discountAmount);
     html += `<div class="row total"><span>סה"כ לתשלום</span><span>₪${finalAmount.toLocaleString('he-IL',{maximumFractionDigits:0})}</span></div>`;
 
     box.innerHTML = html;
@@ -516,13 +524,22 @@
       container.innerHTML = '<div style="color:#718096;font-size:13px;font-style:italic;margin-bottom:4px;">אין זיכויים/הנחות</div>';
       return;
     }
-    container.innerHTML = adjs.map(a => `
+    container.innerHTML = adjs.map(a => {
+      let label;
+      if (a.type === 'credit_hours') {
+        const mins = Math.round(parseFloat(a.value) * 60);
+        label = `⏱ זיכוי ${mins} ד'` + (a.rate != null ? ` &times; ₪${parseFloat(a.rate)}` : '');
+      } else {
+        label = '🏷 הנחה ₪' + a.value;
+      }
+      return `
       <div class="adj-row">
-        <span style="font-weight:500;">${a.type === 'credit_hours' ? '⏱ זיכוי ' + a.value + ' ש\'' : '🏷 הנחה ₪' + a.value}</span>
+        <span style="font-weight:500;">${label}</span>
         ${a.note ? '<span style="color:#718096;">' + a.note + '</span>' : ''}
         <button class="btn btn-danger btn-sm" style="margin-right:auto;padding:2px 8px;" onclick="deleteAdjustment(${a.id})">✕</button>
       </div>
-    `).join('');
+    `;
+    }).join('');
   }
 
   function renderDetailTable(data) {
@@ -580,27 +597,41 @@
     form.style.display = form.style.display === 'none' ? 'block' : 'none';
     if (form.style.display === 'block') {
       document.getElementById('adjValue').value = '';
+      document.getElementById('adjRate').value = '';
       document.getElementById('adjNote').value = '';
+      onAdjTypeChange();
     }
   }
 
   function onAdjTypeChange() {
     const type = document.getElementById('adjType').value;
+    const isCredit = type === 'credit_hours';
     document.getElementById('adjValueLabel').textContent =
-      type === 'credit_hours' ? 'שעות לזיכוי' : 'סכום הנחה (₪)';
+      isCredit ? 'דקות לזיכוי' : 'סכום הנחה (₪)';
+    const valInput = document.getElementById('adjValue');
+    valInput.step = isCredit ? '1' : '0.5';
+    document.getElementById('adjRateGroup').style.display = isCredit ? 'block' : 'none';
   }
 
   async function saveAdjustment() {
     const type = document.getElementById('adjType').value;
-    const value = parseFloat(document.getElementById('adjValue').value);
+    const raw = parseFloat(document.getElementById('adjValue').value);
     const note = document.getElementById('adjNote').value.trim() || null;
-    if (!value || value <= 0) return;
+    if (!raw || raw <= 0) return;
+
+    let value = raw;
+    let rate = null;
+    if (type === 'credit_hours') {
+      value = raw / 60; // דקות → שעות
+      const rateRaw = parseFloat(document.getElementById('adjRate').value);
+      if (rateRaw > 0) rate = rateRaw;
+    }
 
     try {
       const res = await fetch(`/api/billing/${detailTherapistId}/${currentYear}/${currentMonth}/adjustments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type, value, note }),
+        body: JSON.stringify({ type, value, rate, note }),
       });
       if (!res.ok) return;
       toggleAdjForm();

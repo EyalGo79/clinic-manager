@@ -142,6 +142,13 @@ function round2(n) {
   return Math.round(n * 100) / 100;
 }
 
+// שווי זיכוי שעות כולל — מכבד תעריף מותאם (rate) פר-שורה; נופל לתעריף המטפל אם ריק
+function creditValue(adjs, fallbackRate) {
+  return adjs
+    .filter(a => a.type === 'credit_hours')
+    .reduce((s, a) => s + parseFloat(a.value) * (a.rate != null ? parseFloat(a.rate) : fallbackRate), 0);
+}
+
 // מחזיר את החלק היחסי מהחודש שבו הססיה הייתה פעילה (0–1)
 // 0 = אין ססיה בחודש זה כלל, 1 = חודש מלא מכוסה
 async function getContractRatio(therapistId, year, month) {
@@ -251,7 +258,7 @@ async function createSnapshot(therapistId, year, month) {
       [therapistId, year, month]
     ),
     pool.query('SELECT slot_rate FROM therapists WHERE id = $1', [therapistId]),
-    pool.query('SELECT type, value FROM billing_adjustments WHERE therapist_id = $1 AND year = $2 AND month = $3', [therapistId, year, month]),
+    pool.query('SELECT type, value, rate FROM billing_adjustments WHERE therapist_id = $1 AND year = $2 AND month = $3', [therapistId, year, month]),
     fetchTiers(),
   ]);
 
@@ -261,9 +268,9 @@ async function createSnapshot(therapistId, year, month) {
   const billing = calculateBilling(sessionsRes.rows, slotsRows, slot_rate, tiers, contractRatio);
 
   const adjs = adjRes.rows;
-  const creditHours = adjs.filter(a => a.type === 'credit_hours').reduce((s, a) => s + parseFloat(a.value), 0);
   const discountAmount = adjs.filter(a => ['discount_amount', 'monthly_discount'].includes(a.type)).reduce((s, a) => s + parseFloat(a.value), 0);
-  const finalAmount = round2(Math.max(0, billing.totalAmount - creditHours * (billing.extraRatePerHour || billing.ratePerHour) - discountAmount));
+  const credit = creditValue(adjs, billing.extraRatePerHour || billing.ratePerHour);
+  const finalAmount = round2(Math.max(0, billing.totalAmount - credit - discountAmount));
 
   const result = await pool.query(
     `INSERT INTO invoices
@@ -425,15 +432,16 @@ router.get('/summary/:year/:month', isAdmin, async (req, res) => {
 
         // זיכויים — תמיד חיים (גם לחודשים נעולים)
         const adjRes = await pool.query(
-          'SELECT type, value FROM billing_adjustments WHERE therapist_id = $1 AND year = $2 AND month = $3',
+          'SELECT type, value, rate FROM billing_adjustments WHERE therapist_id = $1 AND year = $2 AND month = $3',
           [t.id, year, month]
         );
         const adjs = adjRes.rows;
         const creditHours = adjs.filter(a => a.type === 'credit_hours').reduce((s, a) => s + parseFloat(a.value), 0);
         const discountAmount = adjs.filter(a => ['discount_amount', 'monthly_discount'].includes(a.type)).reduce((s, a) => s + parseFloat(a.value), 0);
-        const totalAmount = round2(Math.max(0, billing.totalAmount - creditHours * (billing.extraRatePerHour || billing.ratePerHour) - discountAmount));
+        const credit = creditValue(adjs, billing.extraRatePerHour || billing.ratePerHour);
+        const totalAmount = round2(Math.max(0, billing.totalAmount - credit - discountAmount));
 
-        return { id: t.id, name: t.name, email: t.email, ...billing, totalAmount, creditHours, discountAmount };
+        return { id: t.id, name: t.name, email: t.email, ...billing, totalAmount, creditHours, creditValue: round2(credit), discountAmount };
       })
     );
 
@@ -549,7 +557,7 @@ router.get('/:therapistId/:year/:month/adjustments', isAdminOrTherapist, async (
   }
   try {
     const result = await pool.query(
-      'SELECT id, type, value, note, created_at FROM billing_adjustments WHERE therapist_id = $1 AND year = $2 AND month = $3 ORDER BY created_at',
+      'SELECT id, type, value, rate, note, created_at FROM billing_adjustments WHERE therapist_id = $1 AND year = $2 AND month = $3 ORDER BY created_at',
       [therapistId, year, month]
     );
     res.json({ adjustments: result.rows });
@@ -561,19 +569,29 @@ router.get('/:therapistId/:year/:month/adjustments', isAdminOrTherapist, async (
 // POST /api/billing/:therapistId/:year/:month/adjustments
 router.post('/:therapistId/:year/:month/adjustments', isAdmin, async (req, res) => {
   const { therapistId, year, month } = req.params;
-  const { type, value, note } = req.body;
+  const { type, value, note, rate } = req.body;
   if (!type || !value || value <= 0) {
     return res.status(400).json({ error: 'סוג וערך חיובי הם שדות חובה' });
   }
   if (!['credit_hours', 'discount_amount'].includes(type)) {
     return res.status(400).json({ error: 'סוג לא תקין' });
   }
+  let rateVal = null;
+  if (rate != null && rate !== '') {
+    rateVal = parseFloat(rate);
+    if (!(rateVal > 0)) {
+      return res.status(400).json({ error: 'תעריף חייב להיות חיובי' });
+    }
+    if (type !== 'credit_hours') {
+      return res.status(400).json({ error: 'תעריף רלוונטי רק לזיכוי שעות' });
+    }
+  }
   try {
     const result = await pool.query(
-      `INSERT INTO billing_adjustments (therapist_id, year, month, type, value, note)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, type, value, note, created_at`,
-      [therapistId, year, month, type, value, note || null]
+      `INSERT INTO billing_adjustments (therapist_id, year, month, type, value, rate, note)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, type, value, rate, note, created_at`,
+      [therapistId, year, month, type, value, rateVal, note || null]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
