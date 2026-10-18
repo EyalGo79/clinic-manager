@@ -2,13 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/db');
 const { isAdmin } = require('../middleware/auth');
-
-function calcRateFromTiers(hours, tiers) {
-  for (const tier of tiers) {
-    if (tier.max_hours === null || hours < parseFloat(tier.max_hours)) return parseFloat(tier.rate);
-  }
-  return parseFloat(tiers[tiers.length - 1].rate);
-}
+const { calcRateFromTiers, weeklyMinutesByTherapist } = require('../lib/billing');
 
 // GET /api/therapists — כל המטפלים, עם slot_cost_estimate לאלו ללא slot_rate ידני
 router.get('/', isAdmin, async (req, res) => {
@@ -21,12 +15,7 @@ router.get('/', isAdmin, async (req, res) => {
 
     const tiers = tiersRes.rows;
     // קבץ ססיות לפי מטפל וחשב שעות שבועיות
-    const weeklyMinutes = {};
-    for (const s of slotsRes.rows) {
-      const [sh, sm] = s.start_time.split(':').map(Number);
-      const [eh, em] = s.end_time.split(':').map(Number);
-      weeklyMinutes[s.therapist_id] = (weeklyMinutes[s.therapist_id] || 0) + (eh * 60 + em) - (sh * 60 + sm);
-    }
+    const weeklyMinutes = weeklyMinutesByTherapist(slotsRes.rows);
 
     const rows = therapistsRes.rows.map(t => {
       const wMin = weeklyMinutes[t.id] || 0;
@@ -79,24 +68,35 @@ router.post('/', isAdmin, async (req, res) => {
   }
 });
 
-// PUT /api/therapists/:id — עדכון מטפל
+// PUT /api/therapists/:id — עדכון מטפל.
+// שדה שלא נשלח כלל (המפתח חסר מה-body) נשמר כפי שהוא.
+// שדה שנשלח במפורש כ-null מאפס את הערך (רלוונטי ל-calendar_name/slot_rate/monthly_discount).
 router.put('/:id', isAdmin, async (req, res) => {
-  const { name, email, phone, type, active, calendar_name, slot_rate, monthly_discount, is_admin } = req.body;
+  const b = req.body;
+  const has = (k) => Object.prototype.hasOwnProperty.call(b, k);
   try {
+    const existing = await pool.query('SELECT * FROM therapists WHERE id = $1', [req.params.id]);
+    if (!existing.rows[0]) return res.status(404).json({ error: 'לא נמצא' });
+    const cur = existing.rows[0];
+
+    // לכל שדה: אם נשלח ב-body — השתמש בערך שנשלח (כולל null); אחרת שמור את הקיים.
+    const name             = has('name') ? b.name : cur.name;
+    const email            = has('email') ? b.email : cur.email;
+    const phone            = has('phone') ? (b.phone || null) : cur.phone;
+    const type             = has('type') ? b.type : cur.type;
+    const active           = has('active') ? b.active : cur.active;
+    const calendar_name    = has('calendar_name') ? (b.calendar_name || null) : cur.calendar_name;
+    const slot_rate        = has('slot_rate') ? (b.slot_rate ?? null) : cur.slot_rate;
+    const monthly_discount = has('monthly_discount') ? (b.monthly_discount ?? null) : cur.monthly_discount;
+    const is_admin         = has('is_admin') ? b.is_admin : cur.is_admin;
+
     const result = await pool.query(
       `UPDATE therapists
-       SET name = COALESCE($1, name),
-           email = COALESCE($2, email),
-           phone = COALESCE($3, phone),
-           type = COALESCE($4, type),
-           active = COALESCE($5, active),
-           calendar_name = $6,
-           slot_rate = $7,
-           monthly_discount = $8,
-           is_admin = COALESCE($9, is_admin)
+       SET name = $1, email = $2, phone = $3, type = $4, active = $5,
+           calendar_name = $6, slot_rate = $7, monthly_discount = $8, is_admin = $9
        WHERE id = $10
        RETURNING id, name, email, phone, type, calendar_name, slot_rate, monthly_discount, is_admin, active`,
-      [name, email, phone, type, active, calendar_name || null, slot_rate || null, monthly_discount || null, is_admin ?? null, req.params.id]
+      [name, email, phone, type, active, calendar_name, slot_rate, monthly_discount, is_admin, req.params.id]
     );
     if (!result.rows[0]) return res.status(404).json({ error: 'לא נמצא' });
     res.json(result.rows[0]);

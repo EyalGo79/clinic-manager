@@ -231,6 +231,12 @@
 
 <script>
   const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+  // בריחת HTML — למניעת XSS בעת הזרקת נתונים מהשרת ל-innerHTML
+  function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
+  }
   let therapists = [];
   let contracts = [];
   let currentTherapistId = null; // המטפל הנוכחי במודל (לניהול slots)
@@ -294,7 +300,7 @@
       const totalStr = '₪' + (c.total_amount || 0).toLocaleString('he-IL', { maximumFractionDigits: 0 });
       const weeklyHrs = c.weekly_slot_minutes ? (c.weekly_slot_minutes / 60).toFixed(1) + ' ש\'' : '—';
       return `<tr>
-        <td><strong>${c.therapist_name || '—'}</strong></td>
+        <td><strong>${escapeHtml(c.therapist_name || '—')}</strong></td>
         <td>${fmtDate(c.start_date)}</td>
         <td>${fmtDate(c.end_date)}</td>
         <td>${c.duration_months} ח'</td>
@@ -325,7 +331,7 @@
       const weeklyHrs = c.weekly_slot_minutes ? (c.weekly_slot_minutes / 60).toFixed(1) + ' ש\'' : '—';
       return `<div class="contract-card">
         <div class="contract-card-header">
-          <div class="contract-card-name">${c.therapist_name || '—'}</div>
+          <div class="contract-card-name">${escapeHtml(c.therapist_name || '—')}</div>
           <div class="contract-card-total">${totalStr}</div>
         </div>
         <div class="contract-card-rows">

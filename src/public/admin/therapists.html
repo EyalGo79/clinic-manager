@@ -156,6 +156,12 @@
 
 <script>
   const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+  // בריחת HTML — למניעת XSS בעת הזרקת נתונים מהשרת ל-innerHTML
+  function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
+  }
   let therapists = [];
   let currentEditId = null;
 
@@ -184,9 +190,9 @@
     }
     tbody.innerHTML = visible.map(t => `
       <tr>
-        <td><strong>${t.name}</strong></td>
-        <td>${t.email}</td>
-        <td>${t.phone || '—'}</td>
+        <td><strong>${escapeHtml(t.name)}</strong></td>
+        <td>${escapeHtml(t.email)}</td>
+        <td>${escapeHtml(t.phone || '—')}</td>
         <td>${t.type === 'fixed' ? '<span class="badge badge-blue">קבוע</span>' : '<span class="badge badge-gray">גמיש</span>'}</td>
         <td>${t.type === 'fixed' && t.slot_rate
           ? '₪' + parseFloat(t.slot_rate).toFixed(0) + '/ח׳'
@@ -198,7 +204,7 @@
         <td>
           <button class="btn btn-ghost btn-sm" onclick="editTherapist(${t.id})">✏️ עריכה</button>
           <button class="btn btn-ghost btn-sm" onclick="toggleActive(${t.id}, ${t.active})" title="${t.active ? 'השבת מטפל' : 'הפעל מטפל'}">${t.active ? '🚫' : '✅'}</button>
-          <button class="btn btn-danger btn-sm" onclick="permanentDelete(${t.id}, '${t.name.replace(/'/g, "\\'")}')" title="מחיקה קבועה">🗑️</button>
+          <button class="btn btn-danger btn-sm" onclick="permanentDelete(${t.id})" title="מחיקה קבועה">🗑️</button>
         </td>
       </tr>
     `).join('');
@@ -281,7 +287,8 @@
     }
   }
 
-  async function permanentDelete(id, name) {
+  async function permanentDelete(id) {
+    const name = therapists.find(t => t.id === id)?.name || '';
     if (!confirm(`למחוק לצמיתות את "${name}"? פעולה זו אינה הפיכה.`)) return;
     try {
       const res = await fetch(`/api/therapists/${id}/permanent`, { method: 'DELETE' });

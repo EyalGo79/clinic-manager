@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/db');
 const { isAdmin, isAdminOrTherapist } = require('../middleware/auth');
+const { round2, calcRateFromTiers, timeToMinutes } = require('../lib/billing');
 
 // שלוף slots פעילים לחודש נתון (מסנן לפי end_date אם קיים)
 async function fetchActiveSlots(therapistId, year, month) {
@@ -28,18 +29,7 @@ async function fetchTiers() {
 }
 
 function calculateRateFromTiers(totalHours, tiers) {
-  for (const tier of tiers) {
-    if (tier.max_hours === null || totalHours < parseFloat(tier.max_hours)) {
-      return parseFloat(tier.rate);
-    }
-  }
-  return parseFloat(tiers[tiers.length - 1].rate);
-}
-
-// המרת שעה מ-TIME string (HH:MM:SS) לדקות מתחילת היום
-function timeToMinutes(t) {
-  const [h, m] = t.split(':').map(Number);
-  return h * 60 + m;
+  return calcRateFromTiers(totalHours, tiers);
 }
 
 // מחזיר כמה דקות מהפגישה חופפות לחלון slot (0 אם אין חפיפה)
@@ -70,13 +60,6 @@ function minutesInSlot(session, slots) {
   return overlap;
 }
 
-// לצורך סימון בממשק — האם הפגישה כולה בתוך slot
-function isInSlot(session, slots) {
-  const mins = minutesInSlot(session, slots);
-  const sessionMins = (new Date(session.end_time) - new Date(session.start_time)) / 60000;
-  return mins >= sessionMins;
-}
-
 // חישוב חיוב עם ססיות קבועות
 // contractRatio: חלק מהחודש שבו הססיה הייתה פעילה (0–1). 1 = חודש מלא.
 function calculateBilling(sessions, slots, slotRate, tiers, contractRatio = 1) {
@@ -102,7 +85,10 @@ function calculateBilling(sessions, slots, slotRate, tiers, contractRatio = 1) {
   const slotMinutesPerWeek = slots.reduce((sum, s) => {
     return sum + (timeToMinutes(s.end_time) - timeToMinutes(s.start_time));
   }, 0);
-  // שעות חודש מלא × יחס ימי הססיה
+  // שעות חודש מלא × יחס ימי הססיה.
+  // הכפלה ב-4 היא פישוט עסקי מכוון: כל ססיה שבועית מחויבת כ-4 מופעים בחודש,
+  // ללא קשר לשאלה אם לחודש הקלנדרי יש 4 או 5 מופעים של אותו יום בשבוע.
+  // (אם אי-פעם ירצו לחייב לפי מספר המופעים בפועל — כאן המקום לשנות.)
   const fullMonthSlotHours = round2((slotMinutesPerWeek / 60) * 4);
   const fixedSlotHours = round2(fullMonthSlotHours * contractRatio);
 
@@ -136,10 +122,6 @@ function calculateBilling(sessions, slots, slotRate, tiers, contractRatio = 1) {
     totalAmount,
     contractRatio,
   };
-}
-
-function round2(n) {
-  return Math.round(n * 100) / 100;
 }
 
 // שווי זיכוי שעות כולל — מכבד תעריף מותאם (rate) פר-שורה; נופל לתעריף המטפל אם ריק
@@ -470,7 +452,7 @@ router.get('/:therapistId/:year/:month', isAdminOrTherapist, async (req, res) =>
   if (!/^\d+$/.test(therapistId)) {
     return res.status(400).json({ error: 'therapistId לא תקין' });
   }
-  if (req.user.role === 'therapist' && req.user.id !== parseInt(therapistId)) {
+  if (req.user.role === 'therapist' && req.user.id !== parseInt(therapistId, 10)) {
     return res.status(403).json({ error: 'אין הרשאה' });
   }
 
@@ -552,7 +534,7 @@ router.get('/:therapistId/:year/:month', isAdminOrTherapist, async (req, res) =>
 // GET /api/billing/:therapistId/:year/:month/adjustments
 router.get('/:therapistId/:year/:month/adjustments', isAdminOrTherapist, async (req, res) => {
   const { therapistId, year, month } = req.params;
-  if (req.user.role === 'therapist' && req.user.id !== parseInt(therapistId)) {
+  if (req.user.role === 'therapist' && req.user.id !== parseInt(therapistId, 10)) {
     return res.status(403).json({ error: 'אין הרשאה' });
   }
   try {
@@ -570,7 +552,8 @@ router.get('/:therapistId/:year/:month/adjustments', isAdminOrTherapist, async (
 router.post('/:therapistId/:year/:month/adjustments', isAdmin, async (req, res) => {
   const { therapistId, year, month } = req.params;
   const { type, value, note, rate } = req.body;
-  if (!type || !value || value <= 0) {
+  const valueNum = parseFloat(value);
+  if (!type || !Number.isFinite(valueNum) || valueNum <= 0) {
     return res.status(400).json({ error: 'סוג וערך חיובי הם שדות חובה' });
   }
   if (!['credit_hours', 'discount_amount'].includes(type)) {
@@ -591,7 +574,7 @@ router.post('/:therapistId/:year/:month/adjustments', isAdmin, async (req, res) 
       `INSERT INTO billing_adjustments (therapist_id, year, month, type, value, rate, note)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING id, type, value, rate, note, created_at`,
-      [therapistId, year, month, type, value, rateVal, note || null]
+      [therapistId, year, month, type, valueNum, rateVal, note || null]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {

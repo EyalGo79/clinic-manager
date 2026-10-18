@@ -188,7 +188,7 @@ router.post('/', isAdminOrTherapist, async (req, res) => {
     return res.status(400).json({ error: 'therapist_id, start_time ו-end_time הם חובה' });
   }
   // מטפל יכול ליצור רק עבור עצמו
-  if (req.user.role === 'therapist' && req.user.id !== parseInt(therapist_id)) {
+  if (req.user.role === 'therapist' && req.user.id !== parseInt(therapist_id, 10)) {
     return res.status(403).json({ error: 'אין הרשאה' });
   }
   if (new Date(start_time) >= new Date(end_time)) {
@@ -360,7 +360,7 @@ router.post('/recurring', isAdminOrTherapist, async (req, res) => {
   if (!therapist_id || !start_time || !end_time || !repeat_until) {
     return res.status(400).json({ error: 'therapist_id, start_time, end_time ו-repeat_until הם חובה' });
   }
-  if (req.user.role === 'therapist' && req.user.id !== parseInt(therapist_id)) {
+  if (req.user.role === 'therapist' && req.user.id !== parseInt(therapist_id, 10)) {
     return res.status(403).json({ error: 'אין הרשאה' });
   }
   try {

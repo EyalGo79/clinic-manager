@@ -163,6 +163,9 @@
 <script>
   let myId = null;
   let calendar = null;
+  // רישום פגישות השבוע לפי id — כדי להעביר רק id (מספר בטוח) ל-onclick,
+  // במקום להזריק את אובייקט הפגישה (כולל notes) ל-HTML ולהיחשף ל-XSS.
+  const weekSessionsById = new Map();
 
   fetch('/auth/me').then(r => r.json()).then(u => {
     document.getElementById('userName').textContent = u.name || u.email;
@@ -182,6 +185,7 @@
       const res = await fetch(`/api/sessions?from=${weekStart.toISOString()}&to=${weekEnd.toISOString()}`);
       const sessions = await res.json();
       const mine = sessions.filter(s => s.therapist_id === myId && s.status === 'confirmed');
+      weekSessionsById.clear();
       const el = document.getElementById('weekSessions');
 
       if (!mine.length) {
@@ -190,6 +194,7 @@
       }
 
       el.innerHTML = mine.map(s => {
+        weekSessionsById.set(s.id, s);
         const start = new Date(s.start_time);
         const end   = new Date(s.end_time);
         const dayStr  = start.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'numeric' });
@@ -204,8 +209,8 @@
               <div style="font-size:13px;color:#718096;">${timeStr} · ${hours} ש'</div>
             </div>
             <div style="display:flex;gap:8px;">
-              <button class="btn btn-ghost btn-sm" onclick='openEditSession(${JSON.stringify(s)})'>עריכה</button>
-              <button class="btn btn-danger btn-sm" onclick='requestCancelById(${JSON.stringify(s)})'>ביטול</button>
+              <button class="btn btn-ghost btn-sm" onclick="openEditSessionById(${s.id})">עריכה</button>
+              <button class="btn btn-danger btn-sm" onclick="requestCancelById(${s.id})">ביטול</button>
             </div>
           </div>`;
       }).join('');
@@ -214,9 +219,16 @@
     }
   }
 
-  function requestCancelById(s) {
+  function requestCancelById(id) {
+    const s = weekSessionsById.get(id);
+    if (!s) return;
     cancelSessionData = { id: s.id, startTime: s.start_time, originalEndTime: s.end_time, seriesId: s.series_id || null };
     requestCancel();
+  }
+
+  function openEditSessionById(id) {
+    const s = weekSessionsById.get(id);
+    if (s) openEditSession(s);
   }
 
   function openNewSession() {

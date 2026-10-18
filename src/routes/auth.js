@@ -62,7 +62,8 @@ router.post('/logout', (req, res, next) => {
 router.get('/me', (req, res) => {
   if (!req.isAuthenticated()) return res.status(401).json({ error: 'לא מחובר' });
   const { id, name, email, role } = req.user;
-  res.json({ id, name, email, role });
+  // לאדמינים אין עמודת name בטבלה — ניפול לאימייל כדי לא להחזיר undefined
+  res.json({ id, name: name || email, email, role });
 });
 
 module.exports = router;

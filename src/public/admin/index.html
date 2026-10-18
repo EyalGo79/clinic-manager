@@ -172,6 +172,12 @@
 </div>
 
 <script>
+  // בריחת HTML — למניעת XSS בעת הזרקת נתונים מהשרת ל-innerHTML
+  function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
+  }
   // תאריך היום
   const now = new Date();
   document.getElementById('todayDate').textContent = now.toLocaleDateString('he-IL', {
@@ -253,7 +259,7 @@
                   : '<span class="badge badge-gray">בוטל</span>';
                 return `<tr>
                   <td>${timeStr}</td>
-                  <td>${s.therapist_name || '—'}</td>
+                  <td>${escapeHtml(s.therapist_name || '—')}</td>
                   <td>${hours} ש'</td>
                   <td>${badge}</td>
                 </tr>`;

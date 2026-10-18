@@ -80,7 +80,7 @@ router.post('/admins', isAdmin, async (req, res) => {
 
 // DELETE /api/settings/admins/:id
 router.delete('/admins/:id', isAdmin, async (req, res) => {
-  if (req.user.id === parseInt(req.params.id)) {
+  if (req.user.id === parseInt(req.params.id, 10)) {
     return res.status(400).json({ error: 'לא ניתן למחוק את עצמך' });
   }
   try {

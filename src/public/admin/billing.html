@@ -260,6 +260,12 @@
 
 <script>
   const MONTHS_HE = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+  // בריחת HTML — למניעת XSS בעת הזרקת נתונים מהשרת ל-innerHTML
+  function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
+  }
   let currentDate = new Date();
   let currentYear = currentDate.getFullYear();
   let currentMonth = currentDate.getMonth() + 1;
@@ -358,9 +364,9 @@
         const adjCell = adjTotal > 0
           ? `<span style="color:#276749;font-size:13px;">&#8722;&#8362;${adjTotal.toLocaleString('he-IL',{maximumFractionDigits:0})}</span>`
           : `<span style="color:#718096;font-size:13px;">&#8212;</span>`;
-        const safeNote = (t.note || '').replace(/"/g, '&quot;');
+        const safeNote = escapeHtml(t.note || '');
         return `<tr>
-          <td><strong>${t.name}</strong><br><small style="color:#718096">${t.email}</small></td>
+          <td><strong>${escapeHtml(t.name)}</strong><br><small style="color:#718096">${escapeHtml(t.email)}</small></td>
           <td>${slotCell}</td>
           <td>${extraCell}</td>
           <td>${adjCell}</td>
@@ -403,13 +409,13 @@
         : `${t.totalHours}ש × ₪${t.ratePerHour}`;
       const adjTotal = (t.creditValue != null ? t.creditValue : (t.creditHours||0)*(t.extraRatePerHour||t.ratePerHour)) + (t.discountAmount||0);
       const adjVal = adjTotal > 0 ? `<span style="color:#276749;">−${fmtILS(adjTotal)}</span>` : '—';
-      const safeNote = (t.note || '').replace(/"/g, '&quot;');
+      const safeNote = escapeHtml(t.note || '');
 
       return `<div class="therapist-card">
         <div class="therapist-card-header">
           <div>
-            <div class="therapist-card-name">${t.name}</div>
-            <div class="therapist-card-email">${t.email}</div>
+            <div class="therapist-card-name">${escapeHtml(t.name)}</div>
+            <div class="therapist-card-email">${escapeHtml(t.email)}</div>
           </div>
           <div class="therapist-card-total">${fmtILS(t.totalAmount)}</div>
         </div>
@@ -535,7 +541,7 @@
       return `
       <div class="adj-row">
         <span style="font-weight:500;">${label}</span>
-        ${a.note ? '<span style="color:#718096;">' + a.note + '</span>' : ''}
+        ${a.note ? '<span style="color:#718096;">' + escapeHtml(a.note) + '</span>' : ''}
         <button class="btn btn-danger btn-sm" style="margin-right:auto;padding:2px 8px;" onclick="deleteAdjustment(${a.id})">✕</button>
       </div>
     `;

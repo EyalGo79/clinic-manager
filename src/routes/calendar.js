@@ -421,15 +421,10 @@ async function cancelGoogleOccurrence(googleEventId, start_time) {
     const calendarId = await getClinicCalendarId(cal);
     if (!calendarId) return;
 
-    // originalStartTime = שעת ההתחלה של ה-occurrence הזה
+    // לביטול occurrence בודד מתוך סדרה חוזרת: מעדכנים את ה-instance בלבד
+    // (eventId_originalStartTime). אסור לעשות patch על ה-eventId הראשי עם status:'cancelled'
+    // כי זה יבטל את כל הסדרה.
     const originalStart = new Date(start_time).toISOString();
-    await cal.events.patch({
-      calendarId,
-      eventId: googleEventId,
-      resource: { status: 'cancelled' },
-      // Google מזהה את ה-occurrence לפי eventId_originalStartTime
-    });
-    // Google API: כדי לבטל occurrence בודד, יש לעדכן את ה-instance
     const instanceId = `${googleEventId}_${originalStart.replace(/[-:]/g, '').replace('.000Z', 'Z')}`;
     await cal.events.patch({
       calendarId,
