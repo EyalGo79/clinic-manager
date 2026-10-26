@@ -33,6 +33,10 @@ pool.query(`CREATE TABLE IF NOT EXISTS billing_notes (
   PRIMARY KEY (therapist_id, year, month)
 )`).catch(e => console.error('migration error (billing_notes):', e.message));
 
+// migration: billing_adjustments.rate (תעריף מותאם לזיכוי שעות)
+pool.query('ALTER TABLE billing_adjustments ADD COLUMN IF NOT EXISTS rate DECIMAL(8,2)')
+  .catch(e => console.error('migration error (billing_adjustments.rate):', e.message));
+
 app.set('trust proxy', 1);
 
 app.use(helmet({
