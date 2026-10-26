@@ -37,6 +37,29 @@ pool.query(`CREATE TABLE IF NOT EXISTS billing_notes (
 pool.query('ALTER TABLE billing_adjustments ADD COLUMN IF NOT EXISTS rate DECIMAL(8,2)')
   .catch(e => console.error('migration error (billing_adjustments.rate):', e.message));
 
+// migration: therapists.is_admin (החרגת מנהל מסיכום החיובים)
+pool.query('ALTER TABLE therapists ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT false')
+  .catch(e => console.error('migration error (therapists.is_admin):', e.message));
+
+// migration: therapist_slots.end_date (תאריך סיום אופציונלי לשעת ססיה)
+pool.query('ALTER TABLE therapist_slots ADD COLUMN IF NOT EXISTS end_date DATE')
+  .catch(e => console.error('migration error (therapist_slots.end_date):', e.message));
+
+// migration: slot_contracts table (חוזים תקופתיים) + index
+pool.query(`CREATE TABLE IF NOT EXISTS slot_contracts (
+  id SERIAL PRIMARY KEY,
+  therapist_id INTEGER REFERENCES therapists(id) ON DELETE CASCADE,
+  start_date DATE NOT NULL,
+  duration_months INTEGER NOT NULL CHECK (duration_months IN (6, 12)),
+  end_date DATE NOT NULL,
+  slot_rate DECIMAL(10,2),
+  auto_renew BOOLEAN DEFAULT true,
+  notes TEXT,
+  created_at TIMESTAMP DEFAULT NOW()
+)`)
+  .then(() => pool.query('CREATE INDEX IF NOT EXISTS idx_slot_contracts_therapist ON slot_contracts(therapist_id)'))
+  .catch(e => console.error('migration error (slot_contracts):', e.message));
+
 app.set('trust proxy', 1);
 
 app.use(helmet({
