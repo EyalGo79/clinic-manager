@@ -8,6 +8,26 @@ const BUFFER_MINUTES = 15; // רבע שעה מינימום בין פגישות �
 const SAME_THERAPIST_MIN_GAP_MINUTES = 90; // בין שני טיפולים של אותו מטפל באותו יום: 0 (צמוד) או ≥ 90 דק'
 const LATE_CANCEL_HOURS = 24;
 
+// הפרש (בדקות) בין UTC לשעון ישראל ב-instant נתון. חיובי = ישראל לפני UTC.
+// משתמשים בו כדי לקדם שבוע תוך שמירה על אותה שעת-קיר בישראל (מעבר שעון קיץ/חורף).
+function israelOffsetMinutes(date) {
+  // en-US עם timeZone מחזיר את הזמן המקומי בישראל; ההפרש מול ה-UTC של אותו instant הוא ה-offset.
+  const utc = new Date(date.toLocaleString('en-US', { timeZone: 'UTC' }));
+  const il  = new Date(date.toLocaleString('en-US', { timeZone: 'Asia/Jerusalem' }));
+  return Math.round((il - utc) / 60000);
+}
+
+// מקדם instant ב-7 ימים תוך שמירה על אותה שעת-קיר בישראל.
+// הוספת 7*24 שעות שומרת על instant קבוע ב-UTC, אבל אם חל מעבר שעון בין שתי הנקודות
+// שעת-הקיר בישראל תזוז בשעה — לכן מתקנים לפי הפרש ה-offset.
+function addWeekIsrael(date) {
+  const before = israelOffsetMinutes(date);
+  const naive  = new Date(date.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const after  = israelOffsetMinutes(naive);
+  // אם ישראל עברה מ-UTC+2 ל-UTC+3 (after>before), שעת-הקיר קפצה קדימה → נחזיר אחורה.
+  return new Date(naive.getTime() - (after - before) * 60000);
+}
+
 // בדיקת חפיפה + בופר — מחזיר { type, conflict } או null.
 // type: 'overlap_same' | 'overlap_other' | 'same_day_gap'
 //
@@ -377,7 +397,7 @@ router.post('/recurring', isAdminOrTherapist, async (req, res) => {
     return res.status(400).json({ error: 'תאריך הסיום חייב להיות אחרי תאריך ההתחלה' });
   }
 
-  // בנה רשימת כל המועדים השבועיים
+  // בנה רשימת כל המועדים השבועיים — מקדמים שבוע תוך שמירה על שעת-הקיר בישראל
   const duration = end - start;
   const occurrences = [];
   let cur = new Date(start);
@@ -385,7 +405,7 @@ router.post('/recurring', isAdminOrTherapist, async (req, res) => {
     const occStart = new Date(cur);
     const occEnd = new Date(cur.getTime() + duration);
     occurrences.push({ start: occStart, end: occEnd });
-    cur.setDate(cur.getDate() + 7);
+    cur = addWeekIsrael(cur);
   }
 
   if (occurrences.length === 0) {
