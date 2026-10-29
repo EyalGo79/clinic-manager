@@ -44,11 +44,10 @@ router.post('/sync', isAdmin, async (req, res) => {
   const { timeMin, timeMax } = req.body;
 
   try {
-    const oauth2Client = getOAuth2Client();
-    oauth2Client.setCredentials({
-      access_token: req.user.access_token,
-      refresh_token: req.user.refresh_token,
-    });
+    const oauth2Client = await getStoredOAuthClient();
+    if (!oauth2Client) {
+      return res.status(400).json({ error: 'לא מחובר ל-Google Calendar. היכנס דרך הגדרות כדי לחבר קאלנדר.' });
+    }
 
     const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
 
@@ -240,11 +239,10 @@ router.post('/event', isAdmin, async (req, res) => {
     if (!sessionResult.rows[0]) return res.status(404).json({ error: 'פגישה לא נמצאה' });
 
     const session = sessionResult.rows[0];
-    const oauth2Client = getOAuth2Client();
-    oauth2Client.setCredentials({
-      access_token: req.user.access_token,
-      refresh_token: req.user.refresh_token,
-    });
+    const oauth2Client = await getStoredOAuthClient();
+    if (!oauth2Client) {
+      return res.status(400).json({ error: 'לא מחובר ל-Google Calendar. היכנס דרך הגדרות כדי לחבר קאלנדר.' });
+    }
 
     const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
     const calendarId = (await getClinicCalendarId(calendar)) || 'primary';
@@ -272,11 +270,10 @@ router.post('/event', isAdmin, async (req, res) => {
 // דחיפת פגישות ללא google_event_id לגוגל קאלנדר
 router.post('/push', isAdmin, async (req, res) => {
   try {
-    const oauth2Client = getOAuth2Client();
-    oauth2Client.setCredentials({
-      access_token: req.user.access_token,
-      refresh_token: req.user.refresh_token,
-    });
+    const oauth2Client = await getStoredOAuthClient();
+    if (!oauth2Client) {
+      return res.status(400).json({ error: 'לא מחובר ל-Google Calendar. היכנס דרך הגדרות כדי לחבר קאלנדר.' });
+    }
     const cal = google.calendar({ version: 'v3', auth: oauth2Client });
     const calendarId = await getClinicCalendarId(cal);
     if (!calendarId) return res.status(404).json({ error: 'לא נמצא קאלנדר בשם "קליניקה"' });
